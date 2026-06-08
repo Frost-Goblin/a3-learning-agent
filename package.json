@@ -1,0 +1,81 @@
+{
+  "name": "a3-learning-agent",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "api": "python -m uvicorn backend.app:app --reload --host 127.0.0.1 --port 8000",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "desktop": "npm run build && node scripts/run-desktop.cjs",
+    "package:win": "npm run build && node scripts/package-win.cjs"
+  },
+  "build": {
+    "appId": "cn.a3.python-learning-assistant",
+    "productName": "AI-Python学习助手",
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist",
+        "to": "dist"
+      },
+      {
+        "from": "backend",
+        "to": "backend"
+      },
+      {
+        "from": "data",
+        "to": "data",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": ".env.local",
+        "to": ".env.local",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ]
+    }
+  },
+  "dependencies": {
+    "@uiw/react-markdown-preview": "^5.2.1",
+    "github-markdown-css": "^5.9.0",
+    "highlight.js": "^11.11.1",
+    "lucide-react": "^1.14.0",
+    "mermaid": "^11.15.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.12.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "electron": "^42.3.3",
+    "electron-builder": "^26.15.0",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.6.0",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.59.2",
+    "vite": "^8.0.12"
+  }
+}

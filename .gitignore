@@ -24,4 +24,14 @@ dist-ssr
 *.sw?
 
 release/
+
+# Local runtime data
+data/sessions/
+data/index/
+data/app_settings.json
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
 .codex-logs/
