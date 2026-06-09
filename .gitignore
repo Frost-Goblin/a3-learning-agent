@@ -24,6 +24,10 @@ dist-ssr
 *.sw?
 
 release/
+build/
+outputs/
+ppt-assets/
+*.rar
 
 # Local runtime data
 data/sessions/
@@ -35,3 +39,6 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .codex-logs/
+
+*.pptx
+

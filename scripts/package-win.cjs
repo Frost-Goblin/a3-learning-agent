@@ -7,6 +7,9 @@ const releaseRoot = path.join(projectRoot, 'release')
 const productName = 'AI-Python\u5b66\u4e60\u52a9\u624b'
 const outputDir = path.join(releaseRoot, 'AI-Python-Learning-Assistant-win')
 const iconPath = path.join(projectRoot, 'assets', 'app-icon.ico')
+const backendBuildRoot = path.join(projectRoot, 'build', 'backend')
+const backendDistRoot = path.join(backendBuildRoot, 'dist')
+const backendExe = path.join(backendDistRoot, 'a3-backend.exe')
 const electronDistCandidates = [
   path.join(projectRoot, 'node_modules', 'electron', 'dist'),
   'C:\\Users\\34477\\wukong-player\\node_modules\\electron\\dist',
@@ -25,7 +28,53 @@ function runNodeScript(scriptPath) {
   }
 }
 
+function buildBackendRuntime() {
+  fs.rmSync(backendBuildRoot, { recursive: true, force: true })
+  fs.mkdirSync(backendBuildRoot, { recursive: true })
+
+  const result = spawnSync(
+    'python',
+    [
+      '-m',
+      'PyInstaller',
+      '--noconfirm',
+      '--clean',
+      '--onefile',
+      '--name',
+      'a3-backend',
+      '--distpath',
+      backendDistRoot,
+      '--workpath',
+      path.join(backendBuildRoot, 'work'),
+      '--specpath',
+      path.join(backendBuildRoot, 'spec'),
+      '--paths',
+      projectRoot,
+      '--collect-submodules',
+      'uvicorn',
+      '--collect-submodules',
+      'backend',
+      path.join(projectRoot, 'backend', 'desktop_server.py'),
+    ],
+    {
+      cwd: projectRoot,
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        PYTHONUTF8: '1',
+        PYTHONIOENCODING: 'utf-8',
+      },
+    },
+  )
+
+  if (result.status !== 0 || !fs.existsSync(backendExe)) {
+    console.error('\u540e\u7aef\u8fd0\u884c\u65f6\u6253\u5305\u5931\u8d25\u3002')
+    process.exit(result.status || 1)
+  }
+}
+
 runNodeScript(path.join(projectRoot, 'scripts', 'generate-icon.cjs'))
+buildBackendRuntime()
 
 const electronDist = electronDistCandidates.find((candidate) =>
   fs.existsSync(path.join(candidate, 'electron.exe')),
@@ -84,6 +133,7 @@ function preparePortableData() {
   fs.mkdirSync(path.join(dataDir, 'sessions'), { recursive: true })
   copyIfExists(path.join(projectRoot, 'data', 'materials'), path.join(dataDir, 'materials'))
   copyIfExists(path.join(projectRoot, 'data', 'index'), path.join(dataDir, 'index'))
+  copyIfExists(path.join(projectRoot, 'data', 'app_settings.json'), path.join(dataDir, 'app_settings.json'))
 }
 
 fs.rmSync(outputDir, { recursive: true, force: true })
@@ -106,6 +156,7 @@ copyIfExists(path.join(projectRoot, 'electron'), path.join(appDir, 'electron'))
 copyIfExists(path.join(projectRoot, 'assets'), path.join(resourcesDir, 'assets'))
 copyIfExists(path.join(projectRoot, 'dist'), path.join(resourcesDir, 'dist'))
 copyIfExists(path.join(projectRoot, 'backend'), path.join(resourcesDir, 'backend'))
+copyIfExists(backendDistRoot, path.join(resourcesDir, 'backend-runtime'))
 preparePortableData()
 
 fs.writeFileSync(

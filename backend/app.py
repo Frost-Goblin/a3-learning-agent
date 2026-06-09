@@ -70,6 +70,13 @@ EMBEDDING_BATCH_SIZE = 10
 MAX_CHAT_HISTORY = 10
 MAX_DOC_CHARS = 900
 MAX_DOC_OVERLAP = 120
+COLLABORATION_ROLES = {
+    "diagnosis": "了解你的情况",
+    "materials": "匹配学习依据",
+    "content": "设计学习内容",
+    "path": "安排学习路径",
+    "feedback": "跟进练习反馈",
+}
 
 CHAT_PROVIDER_OPTIONS = [
     {
@@ -269,7 +276,7 @@ class PathAssessmentRequest(BaseModel):
 
 class ExerciseReviewRequest(BaseModel):
     session_id: str
-    exercise_index: int = Field(ge=0, le=2)
+    exercise_index: int = Field(ge=0)
     exercise_heading: str = Field(min_length=1, max_length=120)
     prompt_lines: list[str] = Field(min_length=1, max_length=12)
     user_code: str = Field(min_length=1, max_length=12000)
@@ -277,7 +284,7 @@ class ExerciseReviewRequest(BaseModel):
 
 class ExerciseReferenceRequest(BaseModel):
     session_id: str
-    exercise_index: int = Field(ge=0, le=2)
+    exercise_index: int = Field(ge=0)
     reference_open: bool
 
 
@@ -470,6 +477,11 @@ SYSTEM_PROMPTS = {
         "只根据题目要求和代码文本本身做判断。"
         "输出必须是严格 JSON，不要输出 Markdown。"
     ),
+    "mermaid": (
+        "你是一名 Python 学习助手。你要根据学生的当前请求和已有会话内容生成 Mermaid 图。"
+        "只能基于输入中提供的主题、学习情况、学习路径、典例或练习内容组织图，不要编造个性化薄弱点。"
+        "输出必须是严格 JSON，不要输出多余说明。"
+    ),
 }
 
 
@@ -530,6 +542,55 @@ def load_session(session_id: str) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def get_collaboration_trace(session: dict[str, Any]) -> list[dict[str, Any]]:
+    trace = session.get("collaboration_trace")
+    return trace if isinstance(trace, list) else []
+
+
+def collaboration_record(
+    role: str,
+    status: str,
+    input_summary: str,
+    output_summary: str,
+    used_sources: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "role": role,
+        "title": COLLABORATION_ROLES.get(role, role),
+        "status": status,
+        "input_summary": input_summary,
+        "output_summary": output_summary,
+        "used_sources": used_sources or [],
+        "updated_at": now_iso(),
+    }
+
+
+def merge_collaboration_trace(
+    session: dict[str, Any],
+    records: list[dict[str, Any]],
+    *,
+    replace_roles: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    replace_roles = replace_roles or set()
+    merged = [
+        item
+        for item in get_collaboration_trace(session)
+        if isinstance(item, dict) and str(item.get("role", "")) not in replace_roles
+    ]
+    by_role = {str(item.get("role", "")): index for index, item in enumerate(merged)}
+    for record in records:
+        role = str(record.get("role", ""))
+        if role in by_role:
+            merged[by_role[role]] = record
+        else:
+            by_role[role] = len(merged)
+            merged.append(record)
+    role_order = {role: index for index, role in enumerate(COLLABORATION_ROLES)}
+    merged.sort(key=lambda item: (role_order.get(str(item.get("role", "")), 99), str(item.get("updated_at", ""))))
+    session["collaboration_trace"] = merged
+    return merged
+
+
 def create_session_payload(course_id: str) -> dict[str, Any]:
     course = resolve_course(course_id)
     session_id = uuid.uuid4().hex
@@ -556,6 +617,7 @@ def create_session_payload(course_id: str) -> dict[str, Any]:
         "online_resources": [],
         "online_resource_state": None,
         "generation_history": [],
+        "collaboration_trace": [],
     }
     save_session(payload)
     return payload
@@ -635,6 +697,33 @@ def get_session_exercise_submissions(session: dict[str, Any]) -> dict[str, Any]:
     if isinstance(submissions, dict):
         return submissions
     return {}
+
+
+def append_artifact_sections(existing: Any, incoming: dict[str, Any], artifact: ArtifactKind) -> dict[str, Any]:
+    if not isinstance(existing, dict):
+        return incoming
+
+    existing_sections = existing.get("sections")
+    incoming_sections = incoming.get("sections")
+    if not isinstance(existing_sections, list) or not existing_sections:
+        return incoming
+    if not isinstance(incoming_sections, list) or not incoming_sections:
+        return existing
+
+    title = "自我练习" if artifact == "summary" else "典例精讲"
+    summary_prefix = str(existing.get("summary", "")).strip()
+    summary_next = str(incoming.get("summary", "")).strip()
+    summary = summary_prefix
+    if summary_next and summary_next not in summary_prefix:
+        summary = f"{summary_prefix} 已继续补充新的题目。" if summary_prefix else summary_next
+
+    return {
+        **incoming,
+        "kind": artifact,
+        "title": str(existing.get("title") or incoming.get("title") or title),
+        "summary": summary or str(incoming.get("summary") or existing.get("summary") or ""),
+        "sections": [*existing_sections, *incoming_sections],
+    }
 
 
 def get_session_path_progress(session: dict[str, Any]) -> dict[str, bool]:
@@ -1219,6 +1308,121 @@ def profile_from_session(session: dict[str, Any], summary_payload: dict[str, Any
     return profile
 
 
+def build_generation_collaboration_records(
+    course: dict[str, Any],
+    profile: dict[str, Any],
+    payload: dict[str, Any],
+    online_resources: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    weakness_tags = [str(item) for item in profile.get("weakness_tags", []) if str(item).strip()]
+    resource_titles = [str(item.get("title", "")) for item in payload.get("resources", []) if isinstance(item, dict)]
+    path_titles = [str(item.get("title", "")) for item in payload.get("path", []) if isinstance(item, dict)]
+    material_source = "Python 课程资料" if payload.get("using_materials") else "课程基础资料"
+    source_labels = [material_source]
+    if online_resources:
+        source_labels.append(f"外部学习资料 {len(online_resources)} 条")
+    next_focus = str(profile.get("next_focus", "")).strip() or str(profile.get("summary", "")).strip()
+    return [
+        collaboration_record(
+            "diagnosis",
+            "已完成",
+            "对话记录",
+            next_focus or "已整理当前学习目标和主要困难点。",
+            ["对话记录"],
+        ),
+        collaboration_record(
+            "materials",
+            "已完成",
+            "学习情况与薄弱点",
+            f"已围绕{('、'.join(weakness_tags[:3]) if weakness_tags else '当前学习重点')}匹配学习依据。",
+            source_labels,
+        ),
+        collaboration_record(
+            "content",
+            "已完成",
+            "学习情况与学习依据",
+            f"已设计 {len(resource_titles)} 类学习内容。",
+            resource_titles[:3] or [course["name"]],
+        ),
+        collaboration_record(
+            "path",
+            "已完成",
+            "学习内容与当前目标",
+            f"已安排 {len(path_titles)} 个学习步骤。",
+            path_titles[:3] or ["学习方案"],
+        ),
+    ]
+
+
+def build_artifact_collaboration_record(artifact: ArtifactKind, payload: dict[str, Any]) -> dict[str, Any]:
+    sections = payload.get("sections", []) if isinstance(payload.get("sections"), list) else []
+    label = "自我练习" if artifact == "summary" else "典例精讲"
+    return collaboration_record(
+        "content",
+        "已更新",
+        "学习情况与课程资料",
+        f"已追加 {len(sections)} 个{label}内容。",
+        [label],
+    )
+
+
+def build_review_collaboration_record(request: ExerciseReviewRequest, review: dict[str, Any]) -> dict[str, Any]:
+    return collaboration_record(
+        "feedback",
+        "已更新",
+        "题目要求与提交代码",
+        str(review.get("summary", "")).strip() or "已完成本次作答点评。",
+        [request.exercise_heading.strip() or f"练习 {request.exercise_index + 1}", "你的练习答案"],
+    )
+
+
+def ensure_session_collaboration_trace(session: dict[str, Any]) -> list[dict[str, Any]]:
+    trace = get_collaboration_trace(session)
+    if trace or not isinstance(session.get("latest_generation"), dict):
+        return trace
+
+    course = resolve_course(session["course_id"])
+    latest_generation = session["latest_generation"]
+    profile = latest_generation.get("profile")
+    if not isinstance(profile, dict):
+        return trace
+
+    records = build_generation_collaboration_records(
+        course,
+        profile,
+        latest_generation,
+        get_session_online_resources(session),
+    )
+
+    latest_artifacts = get_session_artifacts(session)
+    if isinstance(latest_artifacts.get("summary"), dict):
+        records.append(build_artifact_collaboration_record("summary", latest_artifacts["summary"]))
+    if isinstance(latest_artifacts.get("qa_script"), dict):
+        records.append(build_artifact_collaboration_record("qa_script", latest_artifacts["qa_script"]))
+
+    exercise_submissions = get_session_exercise_submissions(session)
+    reviewed_submissions = [
+        item for item in exercise_submissions.values() if isinstance(item, dict) and isinstance(item.get("review"), dict)
+    ]
+    if reviewed_submissions:
+        latest_submission = max(reviewed_submissions, key=lambda item: str(item.get("updated_at", "")))
+        records.append(
+            collaboration_record(
+                "feedback",
+                "已更新",
+                "题目要求与提交代码",
+                str(latest_submission.get("review", {}).get("summary", "")).strip() or "已完成最近一次作答点评。",
+                [str(latest_submission.get("exercise_heading", "练习题")), "你的练习答案"],
+            )
+        )
+
+    return merge_collaboration_trace(
+        session,
+        records,
+        replace_roles={"diagnosis", "materials", "content", "path", "feedback"},
+    )
+
+
 def default_profile_payload(profile_id: str) -> dict[str, Any]:
     base = resolve_profile(profile_id)
     normalized = normalize_profile_payload(base)
@@ -1305,7 +1509,12 @@ def contains_any_keyword(text: str, keywords: list[str]) -> bool:
 def has_mermaid_intent(message: str) -> bool:
     lowered = normalize_message_for_matching(message)
     compact = re.sub(r"\s+", "", lowered)
-    return "mermaid" in lowered or any(
+    mermaid_spellings = ("mermaid", "meimaid", "memaid", "meidmaid", "mindmap")
+    if any(word in lowered for word in mermaid_spellings):
+        return True
+    if "\u56fe" in compact and any(word in compact for word in ("\u751f\u6210", "\u6765\u70b9", "\u6765\u4e2a", "\u753b", "\u505a")):
+        return True
+    return any(
         keyword in compact
         for keyword in (
             "\u601d\u7ef4\u5bfc\u56fe",
@@ -1317,46 +1526,214 @@ def has_mermaid_intent(message: str) -> bool:
     )
 
 
-def build_mermaid_learning_map_reply(user_message: str) -> str:
-    compact = re.sub(r"\s+", "", normalize_message_for_matching(user_message))
-    if any(keyword in compact for keyword in ("\u8def\u7ebf\u56fe", "\u5b66\u4e60\u8def\u5f84", "\u5b66\u4e60\u8def\u7ebf")):
-        chart = """flowchart LR
-  A["1. 基础语法<br/>变量、判断、循环"] --> B["2. 数据结构<br/>列表、字典、集合"]
-  B --> C["3. 函数拆分<br/>参数、返回值、复用"]
-  C --> D["4. 面向对象<br/>类、对象、封装"]
-  D --> E["5. 文件与异常<br/>读写、try except"]
-  E --> F["6. 项目实践<br/>爬虫、数据处理、小工具"]
-  classDef focus fill:#eef6ff,stroke:#8bb8e8,color:#162033;
-  class A,B,C,D,E,F focus"""
-    else:
-        chart = """mindmap
-  root((Python 学习思维导图))
-    基础语法
-      变量与数据类型
-      条件判断
-      循环结构
-      函数
-    数据结构
-      列表
-      字典
-      集合
-      元组
-    面向对象
-      类与对象
-      封装
-      继承
-      方法设计
-    文件与异常
-      文件读写
-      路径处理
-      try except
-      调试错误
-    项目实践
-      爬虫请求
-      数据清洗
-      自动化脚本
-      小项目拆分"""
-    return f"\u53ef\u4ee5\uff0c\u8fd9\u91cc\u662f\u4e00\u5f20 Python \u5b66\u4e60\u601d\u8def\u56fe\uff1a\n\n```mermaid\n{chart}\n```"
+def extract_mermaid_topic(user_message: str) -> str:
+    text = str(user_message or "").strip()
+    text = re.sub(r"(?i)mermaid|meimaid|memaid|meidmaid|mindmap", " ", text)
+    remove_words = (
+        "生成",
+        "来点",
+        "来个",
+        "画",
+        "做",
+        "给我",
+        "帮我",
+        "思维导图",
+        "导图",
+        "路线图",
+        "知识图",
+        "知识结构图",
+        "流程图",
+        "图",
+        "一张",
+        "一个",
+        "一下",
+    )
+    for word in remove_words:
+        text = text.replace(word, " ")
+    text = re.sub(r"[，。！？、,.!?;；:：()\[\]{}<>《》\"'`]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if text.lower() in {"python", "py"}:
+        return ""
+    return text
+
+
+def strip_mermaid_code_fence(chart: str) -> str:
+    cleaned = str(chart or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:mermaid)?", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r"```$", "", cleaned).strip()
+    return cleaned
+
+
+def compact_artifact_sections(payload: Any) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return []
+    sections = payload.get("sections")
+    if not isinstance(sections, list):
+        return []
+    compact_sections: list[dict[str, Any]] = []
+    for section in sections[:4]:
+        if not isinstance(section, dict):
+            continue
+        lines = section.get("lines", [])
+        visible_lines = [str(line) for line in lines if isinstance(line, str) and not line.strip().startswith("```")]
+        compact_sections.append(
+            {
+                "heading": str(section.get("heading", "")).strip(),
+                "points": visible_lines[:3],
+            }
+        )
+    return compact_sections
+
+
+def has_mermaid_basis(session: dict[str, Any], topic: str) -> bool:
+    if topic:
+        return True
+    latest_generation = session.get("latest_generation")
+    if isinstance(latest_generation, dict) and any(latest_generation.get(key) for key in ("profile", "path", "resources")):
+        return True
+    artifacts = get_session_artifacts(session)
+    if any(compact_artifact_sections(artifacts.get(key)) for key in ("summary", "qa_script")):
+        return True
+    previous_user_messages = [
+        str(item.get("content", "")).strip()
+        for item in session.get("messages", [])[:-1]
+        if item.get("role") == "user" and str(item.get("content", "")).strip()
+    ]
+    return len(previous_user_messages) >= 2
+
+
+def mermaid_label(value: Any, fallback: str, max_length: int = 28) -> str:
+    text = str(value or "").strip() or fallback
+    text = re.sub(r"[\r\n\t]+", " ", text)
+    text = re.sub(r'["\\`<>{}\[\]]+', "", text)
+    text = re.sub(r"\s+", " ", text).strip() or fallback
+    return f"{text[:max_length]}..." if len(text) > max_length else text
+
+
+def build_path_mermaid_reply(session: dict[str, Any]) -> str:
+    steps = build_current_path_steps(session)
+    if not steps:
+        return ""
+
+    progress = get_session_path_progress(session)
+    visible_steps = steps[:6]
+    lines = ["flowchart LR"]
+    for index, step in enumerate(visible_steps):
+        title = mermaid_label(step.get("title"), f"\u5b66\u4e60\u6b65\u9aa4 {index + 1}")
+        duration = mermaid_label(step.get("duration"), "\u5efa\u8bae\u65f6\u957f", 14)
+        status = "\u5df2\u5b8c\u6210" if progress.get(str(index)) else "\u5f85\u5b8c\u6210"
+        lines.append(f'  step{index}["{index + 1}. {title}<br/>{duration} · {status}"]')
+    for index in range(len(visible_steps) - 1):
+        lines.append(f"  step{index} --> step{index + 1}")
+    lines.extend(
+        [
+            "  classDef done fill:#eaf7ef,stroke:#118950,color:#162033;",
+            "  classDef todo fill:#eef6ff,stroke:#8bb8e8,color:#162033;",
+        ]
+    )
+    for index in range(len(visible_steps)):
+        lines.append(f"  class step{index} {'done' if progress.get(str(index)) else 'todo'}")
+
+    chart = "\n".join(lines)
+    return f"\u8fd9\u5f20\u56fe\u662f\u6309\u5f53\u524d\u5b66\u4e60\u8def\u5f84\u6574\u7406\u7684\uff1a\n\n```mermaid\n{chart}\n```"
+
+
+def build_profile_mermaid_reply(session: dict[str, Any]) -> str:
+    latest_generation = session.get("latest_generation")
+    profile = latest_generation.get("profile") if isinstance(latest_generation, dict) else None
+    if not isinstance(profile, dict):
+        return ""
+
+    weakness_tags = [mermaid_label(item, "\u5f85\u8865\u5f3a", 18) for item in profile.get("weakness_tags", []) if str(item).strip()]
+    format_tags = [mermaid_label(item, "\u5b66\u4e60\u65b9\u5f0f", 18) for item in profile.get("preferred_format_tags", []) if str(item).strip()]
+    next_focus = mermaid_label(profile.get("next_focus"), "\u4e0b\u4e00\u6b65\u91cd\u70b9", 24)
+    summary = mermaid_label(profile.get("summary"), "\u5b66\u4e60\u60c5\u51b5", 28)
+    if not weakness_tags and not format_tags and next_focus == "\u4e0b\u4e00\u6b65\u91cd\u70b9":
+        return ""
+
+    lines = [
+        "mindmap",
+        f"  root(({summary}))",
+        "    \u5f53\u524d\u91cd\u70b9",
+        f"      {next_focus}",
+    ]
+    if weakness_tags:
+        lines.append("    \u8584\u5f31\u70b9")
+        lines.extend(f"      {tag}" for tag in weakness_tags[:5])
+    if format_tags:
+        lines.append("    \u5b66\u4e60\u65b9\u5f0f")
+        lines.extend(f"      {tag}" for tag in format_tags[:4])
+
+    chart = "\n".join(lines)
+    return f"\u8fd9\u5f20\u56fe\u662f\u6309\u5f53\u524d\u5b66\u4e60\u60c5\u51b5\u6574\u7406\u7684\uff1a\n\n```mermaid\n{chart}\n```"
+
+
+def build_mermaid_learning_map_reply(settings: Settings, session: dict[str, Any], user_message: str) -> str:
+    topic = extract_mermaid_topic(user_message)
+    if not has_mermaid_basis(session, topic):
+        return "可以。你先说一下想画哪个主题，比如列表方法、面向对象、文件读写，或先生成学习方案后我再按当前路径画图。"
+
+    course = resolve_course(session["course_id"])
+    latest_generation = session.get("latest_generation") if isinstance(session.get("latest_generation"), dict) else {}
+    artifacts = get_session_artifacts(session)
+    recent_messages = []
+    for item in session.get("messages", [])[-MAX_CHAT_HISTORY:]:
+        role = "学生" if item.get("role") == "user" else "助手"
+        content = str(item.get("content", "")).strip()
+        if content:
+            recent_messages.append(f"{role}：{content}")
+
+    prompt = f"""
+请为学生生成一张 Mermaid 图。
+
+学生请求：
+{user_message}
+
+从请求中提取到的主题：
+{topic or "未明确给出"}
+
+课程信息：
+{json_dumps(course)}
+
+当前学习情况：
+{json_dumps(latest_generation.get("profile", {}))}
+
+当前学习路径：
+{json_dumps(build_current_path_steps(session))}
+
+已有典例精讲：
+{json_dumps(compact_artifact_sections(artifacts.get("qa_script")))}
+
+已有自我练习：
+{json_dumps(compact_artifact_sections(artifacts.get("summary")))}
+
+最近对话：
+{chr(10).join(recent_messages)}
+
+严格输出 JSON：
+{{
+  "intro": "一句面向学生的说明",
+  "chart": "Mermaid 代码，不要包含 ```",
+  "clarification": ""
+}}
+
+要求：
+1. 如果学生明确给了主题，就围绕该主题生成图。
+2. 如果学生没有给主题，但已有学习情况、学习路径、典例或练习，就基于这些真实内容生成图。
+3. 如果没有足够依据，chart 为空，clarification 写一句自然追问。
+4. 不要编造学生薄弱点；没有画像时只画主题结构，不要说这是学生当前薄弱点。
+5. 概念结构优先用 mindmap，学习路径或步骤优先用 flowchart。
+6. Mermaid 节点文字用中文，保持简短，避免过长句子。
+7. chart 字段只放 Mermaid 代码，不要放 Markdown 代码围栏。
+"""
+    payload = call_chat_json(settings, SYSTEM_PROMPTS["mermaid"], prompt)
+    chart = strip_mermaid_code_fence(str(payload.get("chart", "")))
+    clarification = str(payload.get("clarification", "")).strip()
+    intro = str(payload.get("intro", "")).strip() or "可以，这是按当前内容整理的图："
+    if not chart:
+        return clarification or "可以。你先说一下想画哪个主题，我再帮你生成图。"
+    return f"{intro}\n\n```mermaid\n{chart}\n```"
 
 
 def has_explicit_code_intent(message: str) -> bool:
@@ -1495,7 +1872,7 @@ def build_direct_content_payload(
     if has_mermaid_intent(user_message):
         existing_missing_slots = [str(item) for item in session.get("missing_slots", [])][:4]
         return {
-            "reply": build_mermaid_learning_map_reply(user_message),
+            "reply": build_mermaid_learning_map_reply(settings, session, user_message),
             "profile_completion": max(0, min(100, int(session.get("profile_completion", 0)))),
             "missing_slots": existing_missing_slots,
             "ready_to_generate": False,
@@ -1637,35 +2014,37 @@ Additional rules:
 
 
 def is_learning_plan_request(user_message: str, reply: str = "") -> bool:
-    text = f"{user_message}\n{reply}".lower()
-    compact = re.sub(r"\s+", "", text)
-    direct_phrases = {
-        "\u751f\u6210",
-        "\u751f\u6210\u5427",
-        "\u5f00\u59cb\u751f\u6210",
-        "\u53ef\u4ee5\u751f\u6210",
-        "\u505a\u65b9\u6848",
-        "\u5f00\u59cb\u5427",
-    }
-    if compact in direct_phrases:
-        return True
+    if has_mermaid_intent(user_message):
+        return False
 
-    generate_words = (
-        "\u751f\u6210",
-        "\u5236\u5b9a",
-        "\u68b3\u7406",
-        "\u5b89\u6392",
-        "\u505a\u4e00\u4efd",
+    text = user_message.lower()
+    compact = re.sub(r"\s+", "", text)
+    explicit_plan_words = (
+        "学习方案",
+        "学习计划",
+        "学习路径",
+        "学习安排",
+        "复习计划",
+        "复习安排",
+        "python学习方案",
+        "python学习计划",
+        "python学习路径",
     )
-    plan_words = (
-        "\u5b66\u4e60\u65b9\u6848",
-        "\u5b66\u4e60\u8ba1\u5212",
-        "\u5b66\u4e60\u8def\u5f84",
-        "\u5b66\u4e60\u5b89\u6392",
-        "\u65b9\u6848",
-        "\u8ba1\u5212",
+    if not any(word in compact for word in explicit_plan_words):
+        return False
+
+    action_words = (
+        "生成",
+        "制定",
+        "规划",
+        "安排",
+        "做",
+        "给我",
+        "出一份",
+        "开始",
+        "整理",
     )
-    return any(word in text for word in generate_words) and any(word in text for word in plan_words)
+    return any(word in compact for word in action_words) or compact in explicit_plan_words
 
 
 def build_suggested_actions(session: dict[str, Any], reply: str, user_message: str, ready_to_generate: bool) -> list[dict[str, str]]:
@@ -2969,6 +3348,9 @@ def chat_sessions() -> dict[str, Any]:
 def get_chat_session(session_id: str) -> dict[str, Any]:
     session = load_session(session_id)
     refresh_session_metadata(session)
+    collaboration_trace = ensure_session_collaboration_trace(session)
+    if collaboration_trace:
+        save_session(session)
     latest_artifacts = get_session_artifacts(session)
     exercise_submissions = get_session_exercise_submissions(session)
     latest_artifacts, exercise_submissions = sanitize_artifact_state_for_response(latest_artifacts, exercise_submissions)
@@ -2992,6 +3374,7 @@ def get_chat_session(session_id: str) -> dict[str, Any]:
         "path_assessments": get_session_path_assessments(session),
         "online_resources": get_session_online_resources(session),
         "generation_history": get_session_generation_history(session),
+        "collaboration_trace": collaboration_trace,
     }
 
 
@@ -3028,9 +3411,12 @@ def chat_message(request: ChatMessageRequest) -> dict[str, Any]:
 
     payload = build_chat_payload(settings, session, user_message)
     payload["reply"] = polish_chat_reply(payload["reply"])
+    mermaid_requested = has_mermaid_intent(user_message)
     plan_requested = is_learning_plan_request(user_message, payload["reply"])
     ready_for_plan = bool(payload.get("ready_to_generate", False)) or int(payload.get("profile_completion", 0)) >= 75
-    if plan_requested:
+    if mermaid_requested:
+        payload["ready_to_generate"] = False
+    elif plan_requested:
         payload["reply"] = "\u53ef\u4ee5\uff0c\u70b9\u51fb\u4e0b\u9762\u7684\u6309\u94ae\u5373\u53ef\u751f\u6210\u5b66\u4e60\u65b9\u6848\u3002"
         payload["ready_to_generate"] = True
     elif ready_for_plan:
@@ -3119,7 +3505,7 @@ def assess_path_step(request: PathAssessmentRequest) -> dict[str, Any]:
     assessments[str(request.step_index)] = record
     session["path_assessments"] = assessments
     progress = get_session_path_progress(session)
-    progress[str(request.step_index)] = True
+    progress[str(request.step_index)] = assessment.get("mastery") == "good"
     session["path_progress"] = progress
     refresh_session_metadata(session)
     save_session(session)
@@ -3140,11 +3526,48 @@ def generate(request: GenerateRequest) -> dict[str, Any]:
         profile_summary = build_profile_summary_payload(settings, session)
         profile = profile_from_session(session, profile_summary)
         payload = build_generation_payload_from_profile(settings, course, profile, request.focus, request.depth, request.version)
+        resource_query = "，".join(
+            item
+            for item in [
+                str(profile.get("next_focus", "")).strip(),
+                str(profile.get("dimensions", {}).get("weakness", "")).strip(),
+                "、".join(str(tag) for tag in profile.get("weakness_tags", []) if str(tag).strip()),
+            ]
+            if item
+        )
+        online_resource_items = recommend_online_resources(
+            course_id=course["id"],
+            focus=request.focus,
+            profile=profile,
+            query=resource_query,
+            limit=20,
+        )
+        online_resource_items = rerank_online_resources_by_embedding(
+            settings,
+            online_resource_items,
+            profile,
+            request.focus,
+            resource_query,
+            limit=10,
+        )
         session["latest_generation"] = payload
         session["path_progress"] = {}
         session["path_assessments"] = {}
-        session["online_resources"] = []
-        session["online_resource_state"] = None
+        session["online_resources"] = online_resource_items
+        session["online_resource_state"] = {
+            "course_id": course["id"],
+            "focus": request.focus,
+            "query": resource_query,
+            "selected_tags": profile.get("weakness_tags", []),
+            "preferred_format_tags": profile.get("preferred_format_tags", []),
+            "level_tag": profile.get("level_tag", "beginner"),
+            "updated_at": now_iso(),
+        }
+        collaboration_trace = merge_collaboration_trace(
+            session,
+            build_generation_collaboration_records(course, profile, payload, online_resource_items),
+            replace_roles={"diagnosis", "materials", "content", "path"},
+        )
         history = prepend_session_generation_history(
             session,
             {
@@ -3160,6 +3583,7 @@ def generate(request: GenerateRequest) -> dict[str, Any]:
             "session_id": session["session_id"],
             "history": history,
             "online_resources": get_session_online_resources(session),
+            "collaboration_trace": collaboration_trace,
         }
 
     course = resolve_course(request.course_id)
@@ -3187,19 +3611,21 @@ def artifact(request: ArtifactRequest) -> dict[str, Any]:
         )
 
         latest_artifacts = get_session_artifacts(session)
+        payload = append_artifact_sections(latest_artifacts.get(request.artifact), payload, request.artifact)
         latest_artifacts[request.artifact] = payload
-        if request.artifact == "summary":
-            session["exercise_submissions"] = {}
-        session["path_progress"] = {}
-        session["path_assessments"] = {}
         session["latest_artifacts"] = latest_artifacts
         session["latest_artifact"] = payload
+        collaboration_trace = merge_collaboration_trace(
+            session,
+            [build_artifact_collaboration_record(request.artifact, payload)],
+        )
         refresh_session_metadata(session)
         save_session(session)
         return {
             **payload,
             "session_id": session["session_id"],
             "exercise_submissions": get_session_exercise_submissions(session),
+            "collaboration_trace": collaboration_trace,
         }
 
     course = resolve_course(request.course_id)
@@ -3249,6 +3675,10 @@ def review_exercise(request: ExerciseReviewRequest) -> dict[str, Any]:
 
     exercise_submissions[str(request.exercise_index)] = submission
     session["exercise_submissions"] = exercise_submissions
+    collaboration_trace = merge_collaboration_trace(
+        session,
+        [build_review_collaboration_record(request, review)],
+    )
     refresh_session_metadata(session)
     save_session(session)
 
@@ -3256,6 +3686,7 @@ def review_exercise(request: ExerciseReviewRequest) -> dict[str, Any]:
         "session_id": session["session_id"],
         **review,
         "submission": submission,
+        "collaboration_trace": collaboration_trace,
     }
 
 

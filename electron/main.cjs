@@ -65,13 +65,19 @@ async function startBackend(rootDir) {
     return
   }
 
+  const packagedBackendExe = path.join(rootDir, 'backend-runtime', process.platform === 'win32' ? 'a3-backend.exe' : 'a3-backend')
+  const usePackagedBackend = app.isPackaged && fs.existsSync(packagedBackendExe)
   const pythonCommand = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
+  const command = usePackagedBackend ? packagedBackendExe : pythonCommand
+  const args = usePackagedBackend
+    ? ['--host', BACKEND_HOST, '--port', String(BACKEND_PORT)]
+    : ['-m', 'uvicorn', 'backend.app:app', '--host', BACKEND_HOST, '--port', String(BACKEND_PORT)]
   const dataDir = getDataDir()
   fs.mkdirSync(dataDir, { recursive: true })
 
   backendProcess = spawn(
-    pythonCommand,
-    ['-m', 'uvicorn', 'backend.app:app', '--host', BACKEND_HOST, '--port', String(BACKEND_PORT)],
+    command,
+    args,
     {
       cwd: rootDir,
       env: {
@@ -93,7 +99,7 @@ async function startBackend(rootDir) {
   if (!ready) {
     dialog.showErrorBox(
       '\u540e\u7aef\u542f\u52a8\u5931\u8d25',
-      '\u6ca1\u6709\u6210\u529f\u542f\u52a8\u672c\u5730\u5b66\u4e60\u52a9\u624b\u670d\u52a1\u3002\u8bf7\u786e\u8ba4 Python \u548c\u540e\u7aef\u4f9d\u8d56\u5df2\u7ecf\u5b89\u88c5\u3002',
+      '\u6ca1\u6709\u6210\u529f\u542f\u52a8\u672c\u5730\u5b66\u4e60\u52a9\u624b\u670d\u52a1\u3002\u8bf7\u91cd\u65b0\u89e3\u538b\u5b8c\u6574\u53d1\u5e03\u5305\u540e\u518d\u8fd0\u884c\u3002',
     )
   }
 }

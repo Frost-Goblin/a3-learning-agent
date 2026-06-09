@@ -23,6 +23,8 @@ import {
   Trash2,
   UserRound,
   X,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -178,6 +180,16 @@ type ExerciseSubmissionState = {
 
 type ExerciseSubmissionCollection = Record<string, ExerciseSubmissionState>
 
+type CollaborationRecord = {
+  role: string
+  title: string
+  status: string
+  input_summary: string
+  output_summary: string
+  used_sources: string[]
+  updated_at: string
+}
+
 type OnlineResource = {
   id: string
   title: string
@@ -240,6 +252,7 @@ type SessionDetail = {
   path_assessments?: PathAssessmentCollection
   online_resources?: OnlineResource[]
   generation_history?: RunRecord[]
+  collaboration_trace?: CollaborationRecord[]
 }
 
 type AppSettingsState = {
@@ -335,12 +348,12 @@ const TEXT = {
   openResource: '\u6253\u5f00\u8d44\u6599',
   matchedWeakness: '\u5339\u914d\u96be\u70b9',
   generateSummaryArtifact: '\u751f\u6210\u81ea\u6211\u7ec3\u4e60',
-  regenerateSummaryArtifact: '\u91cd\u65b0\u751f\u6210\u81ea\u6211\u7ec3\u4e60',
+  regenerateSummaryArtifact: '\u7ee7\u7eed\u751f\u6210\u81ea\u6211\u7ec3\u4e60',
   generateScriptArtifact: '\u751f\u6210\u5178\u4f8b\u7cbe\u8bb2',
-  regenerateScriptArtifact: '\u91cd\u65b0\u751f\u6210\u5178\u4f8b\u7cbe\u8bb2',
+  regenerateScriptArtifact: '\u7ee7\u7eed\u751f\u6210\u5178\u4f8b\u7cbe\u8bb2',
   summaryArtifact: '\u81ea\u6211\u7ec3\u4e60',
   scriptArtifact: '\u5178\u4f8b\u7cbe\u8bb2',
-  artifactReady: '\u5df2\u751f\u6210\uff0c\u53ef\u4ee5\u76f4\u63a5\u5207\u6362\u67e5\u770b\u3002',
+  artifactReady: '\u5df2\u6dfb\u52a0\u5230\u5f53\u524d\u5217\u8868\u3002',
   emptyArtifact: '\u70b9\u51fb\u201c\u751f\u6210\u7ec3\u4e60\u9898\u201d\u540e\uff0c\u8fd9\u91cc\u4f1a\u4fdd\u7559\u672c\u6b21\u7684\u7ec3\u4e60\u548c\u8bb2\u89e3\u3002',
   emptyPractice: '\u5148\u751f\u6210\u4e00\u7ec4\u7ec3\u4e60\u9898\uff0c\u7136\u540e\u5c31\u53ef\u4ee5\u5728\u8fd9\u91cc\u505a\u9898\u3001\u63d0\u4ea4\u548c\u5bf9\u7167\u8bb2\u89e3\u3002',
   emptySummaryArtifactTitle: '\u8fd8\u6ca1\u6709\u81ea\u6211\u7ec3\u4e60',
@@ -505,6 +518,24 @@ function getResourceIconUrl(resourceUrl: string) {
   } catch {
     return ''
   }
+}
+
+function getResourceKindLabel(kind: string) {
+  const labels: Record<string, string> = {
+    documentation: '文档',
+    article: '文章',
+    video: '视频',
+    repository: '代码库',
+  }
+  return labels[kind] ?? '资料'
+}
+
+function getPathTheoryResources(resources: OnlineResource[], stepIndex: number) {
+  if (resources.length <= 2) {
+    return resources
+  }
+  const start = (stepIndex * 2) % resources.length
+  return [resources[start], resources[(start + 1) % resources.length]].filter(Boolean)
 }
 
 function normalizeAssistantMessage(message: string, index: number) {
@@ -937,28 +968,31 @@ function normalizeMermaidLabel(text: string, fallback: string, maxLength = 30) {
 }
 
 function buildPathMermaidChart(steps: PathStep[], progress: PathProgressState) {
-  const visibleSteps = steps.slice(0, 6)
+  const visibleSteps = steps.slice(0, 4)
   if (visibleSteps.length === 0) {
     return ''
   }
 
-  const nodes = visibleSteps.map((step, index) => {
+  const lines = ['flowchart TB', '  start(["学习路线"])']
+  visibleSteps.forEach((step, index) => {
     const title = normalizeMermaidLabel(step.title, `学习步骤 ${index + 1}`)
     const duration = normalizeMermaidLabel(step.duration, '建议时长', 14)
-    const status = progress[String(index)] ? '已完成' : '待完成'
-    return `  step${index}["${index + 1}. ${title}<br/>${duration} · ${status}"]`
+    const status = progress[String(index)] ? '掌握较好' : '待跟进'
+    lines.push(`  subgraph stage${index}["${index + 1}. ${title} · ${duration}"]`)
+    lines.push(`    theory${index}["先学理论"] --> example${index}["再看典例"]`)
+    lines.push(`    example${index} --> practice${index}["最后练习"]`)
+    lines.push(`    practice${index} --> feedback${index}["反馈跟进 · ${status}"]`)
+    lines.push('  end')
+    lines.push(`  class feedback${index} ${progress[String(index)] ? 'done' : 'todo'}`)
   })
-  const edges = visibleSteps.slice(1).map((_step, index) => `  step${index} --> step${index + 1}`)
-  const classes = visibleSteps.map((_step, index) => `  class step${index} ${progress[String(index)] ? 'done' : 'todo'}`)
+  lines.push('  start --> theory0')
+  visibleSteps.slice(1).forEach((_step, index) => {
+    lines.push(`  feedback${index} --> theory${index + 1}`)
+  })
+  lines.push('  classDef done fill:#eaf7ef,stroke:#118950,color:#162033;')
+  lines.push('  classDef todo fill:#eef6ff,stroke:#8bb8e8,color:#162033;')
 
-  return [
-    'flowchart LR',
-    ...nodes,
-    ...edges,
-    '  classDef done fill:#eaf7ef,stroke:#118950,color:#162033;',
-    '  classDef todo fill:#eef6ff,stroke:#8bb8e8,color:#162033;',
-    ...classes,
-  ].join('\n')
+  return lines.join('\n')
 }
 
 function normalizeArtifactCollection(payload?: ArtifactCollection | null, fallback?: ArtifactState | null) {
@@ -1028,6 +1062,7 @@ function App() {
   const [sessionId, setSessionId] = useState('')
   const activeSessionRef = useRef('')
   const sessionLoadTokenRef = useRef(0)
+  const autoLoadedPathResourcesRef = useRef<Record<string, boolean>>({})
   const [sessionSummaries, setSessionSummaries] = useState<SessionSummary[]>([])
   const [sessionSeed, setSessionSeed] = useState(0)
   const [restoreSessionId, setRestoreSessionId] = useState('')
@@ -1042,13 +1077,15 @@ function App() {
   const [artifactVersions, setArtifactVersions] = useState<Record<ArtifactKind, number>>({ summary: 0, qa_script: 0 })
   const [exerciseSubmissions, setExerciseSubmissions] = useState<ExerciseSubmissionCollection>({})
   const [exerciseDrafts, setExerciseDrafts] = useState<Record<string, string>>({})
-  const [pathProgress, setPathProgress] = useState<PathProgressState>({})
+  const [, setPathProgress] = useState<PathProgressState>({})
   const [pathAssessments, setPathAssessments] = useState<PathAssessmentCollection>({})
   const [pathFeedbackDrafts, setPathFeedbackDrafts] = useState<Record<string, string>>({})
+  const [pathMapZoom, setPathMapZoom] = useState(1)
   const [selectedPracticeIndex, setSelectedPracticeIndex] = useState(0)
   const [selectedExampleIndex, setSelectedExampleIndex] = useState(0)
   const [, setHistory] = useState<RunRecord[]>([])
   const [onlineResources, setOnlineResources] = useState<OnlineResource[]>([])
+  const [collaborationTrace, setCollaborationTrace] = useState<CollaborationRecord[]>([])
 
   const [sessionLoading, setSessionLoading] = useState(false)
   const [messageLoading, setMessageLoading] = useState(false)
@@ -1087,6 +1124,7 @@ function App() {
     setSelectedExampleIndex(0)
     setHistory([])
     setOnlineResources([])
+    setCollaborationTrace([])
     setMessageLoading(false)
     setGenerationLoading(false)
     setExerciseReviewLoading(false)
@@ -1114,9 +1152,69 @@ function App() {
     [exerciseSections, scriptSections, generation?.path],
   )
   const pathUsesGeneratedContent = exerciseSections.length > 0 || scriptSections.length > 0
-  const completedPathCount = pathSteps.reduce((count, _step, index) => count + (pathProgress[String(index)] ? 1 : 0), 0)
+  const effectivePathProgress = useMemo<PathProgressState>(() => {
+    const next: PathProgressState = {}
+    pathSteps.forEach((_step, index) => {
+      next[String(index)] = pathAssessments[String(index)]?.assessment.mastery === 'good'
+    })
+    return next
+  }, [pathAssessments, pathSteps])
+  const completedPathCount = pathSteps.reduce((count, _step, index) => count + (effectivePathProgress[String(index)] ? 1 : 0), 0)
+  const assessedPathCount = pathSteps.reduce((count, _step, index) => count + (pathAssessments[String(index)] ? 1 : 0), 0)
   const pathCompletionPercent = pathSteps.length > 0 ? Math.round((completedPathCount / pathSteps.length) * 100) : 0
-  const pathMermaidChart = useMemo(() => buildPathMermaidChart(pathSteps, pathProgress), [pathSteps, pathProgress])
+  const pathMermaidChart = useMemo(() => buildPathMermaidChart(pathSteps, effectivePathProgress), [pathSteps, effectivePathProgress])
+  const collaborationSteps = useMemo(() => {
+    const byRole = new Map(collaborationTrace.map((item) => [item.role, item]))
+    const defaults: CollaborationRecord[] = [
+      {
+        role: 'diagnosis',
+        title: '了解你的情况',
+        status: '待开始',
+        input_summary: '对话记录',
+        output_summary: '等待生成学习情况后完成。',
+        used_sources: ['对话记录'],
+        updated_at: '',
+      },
+      {
+        role: 'materials',
+        title: '匹配学习依据',
+        status: '待开始',
+        input_summary: '薄弱点',
+        output_summary: '等待识别薄弱点后匹配课程资料和外部资料。',
+        used_sources: ['Python 课程资料', '外部学习资料'],
+        updated_at: '',
+      },
+      {
+        role: 'content',
+        title: '设计学习内容',
+        status: '待开始',
+        input_summary: '学习情况',
+        output_summary: '等待生成推荐资料、典例或练习。',
+        used_sources: ['学习情况', '课程资料'],
+        updated_at: '',
+      },
+      {
+        role: 'path',
+        title: '安排学习路径',
+        status: '待开始',
+        input_summary: '学习内容',
+        output_summary: '等待把理论、典例、练习和反馈组织成路径。',
+        used_sources: ['学习资料', '典例', '练习'],
+        updated_at: '',
+      },
+      {
+        role: 'feedback',
+        title: '跟进练习反馈',
+        status: '待完成',
+        input_summary: '练习答案',
+        output_summary: '提交练习答案后，这里会显示点评和下一步建议。',
+        used_sources: ['你的练习答案'],
+        updated_at: '',
+      },
+    ]
+    return defaults.map((item) => byRole.get(item.role) ?? item)
+  }, [collaborationTrace])
+  const completedCollaborationCount = collaborationSteps.filter((item) => item.status !== '待开始' && item.status !== '待完成').length
   const displayMessages = useMemo<DisplayMessage[]>(
     () =>
       pendingMessage
@@ -1400,6 +1498,7 @@ function App() {
           setHistory(restoredHistory)
           setVersion(getLatestHistoryVersion(restoredHistory))
           setOnlineResources(Array.isArray(payload.online_resources) ? payload.online_resources : [])
+          setCollaborationTrace(Array.isArray(payload.collaboration_trace) ? payload.collaboration_trace : [])
           setStage(payload.latest_generation ? 'generated' : payload.ready_to_generate ? 'ready_to_generate' : 'chatting')
           setBackendNotice(TEXT.restoreOk)
           window.localStorage.setItem(LAST_SESSION_KEY, payload.session_id)
@@ -1448,6 +1547,7 @@ function App() {
         setHistory(restoredHistory)
         setVersion(getLatestHistoryVersion(restoredHistory))
         setOnlineResources(Array.isArray(payload.online_resources) ? payload.online_resources : [])
+        setCollaborationTrace(Array.isArray(payload.collaboration_trace) ? payload.collaboration_trace : [])
         setStage(payload.latest_generation ? 'generated' : payload.ready_to_generate ? 'ready_to_generate' : 'chatting')
         setActiveView('chat')
         setBackendNotice(TEXT.startHint)
@@ -1644,6 +1744,7 @@ function App() {
         session_id?: string
         history?: RunRecord[]
         online_resources?: OnlineResource[]
+        collaboration_trace?: CollaborationRecord[]
       }
       if (!isActiveSession(requestSessionId) || (payload.session_id && payload.session_id !== requestSessionId)) {
         return
@@ -1654,6 +1755,7 @@ function App() {
       setPathFeedbackDrafts({})
       setHistory(Array.isArray(payload.history) ? payload.history : [])
       setOnlineResources(Array.isArray(payload.online_resources) ? payload.online_resources : [])
+      setCollaborationTrace(Array.isArray(payload.collaboration_trace) ? payload.collaboration_trace : [])
       setStage('generated')
       setActiveView('profile')
       setBackendNotice(TEXT.generatedNotice)
@@ -1675,6 +1777,7 @@ function App() {
     }
 
     const requestSessionId = sessionId
+    const previousSectionCount = nextKind === 'summary' ? exerciseSections.length : scriptSections.length
     setArtifactLoadingBySession((current) => ({
       ...current,
       [requestSessionId]: nextKind,
@@ -1684,11 +1787,6 @@ function App() {
       ...current,
       [nextKind]: nextVariant,
     }))
-    if (nextKind === 'summary') {
-      setSelectedPracticeIndex(0)
-    } else {
-      setSelectedExampleIndex(0)
-    }
     try {
       const response = await fetch('/api/artifact', {
         method: 'POST',
@@ -1711,7 +1809,7 @@ function App() {
         throw new Error(await readErrorDetail(response, TEXT.artifactFailed))
       }
 
-      const payload = (await response.json()) as ArtifactState & { session_id?: string }
+      const payload = (await response.json()) as ArtifactState & { session_id?: string; collaboration_trace?: CollaborationRecord[] }
       if (!isActiveSession(requestSessionId) || (payload.session_id && payload.session_id !== requestSessionId)) {
         return
       }
@@ -1719,15 +1817,18 @@ function App() {
         ...current,
         [nextKind]: payload,
       }))
-      setPathProgress({})
-      setPathAssessments({})
-      setPathFeedbackDrafts({})
       if (nextKind === 'summary') {
         const nextSubmissions = normalizeExerciseSubmissions(payload.exercise_submissions)
         setExerciseSubmissions(nextSubmissions)
-        setExerciseDrafts(buildExerciseDrafts(nextSubmissions))
-        setSelectedPracticeIndex(0)
+        setExerciseDrafts((current) => ({
+          ...buildExerciseDrafts(nextSubmissions),
+          ...current,
+        }))
+        setSelectedPracticeIndex(previousSectionCount)
+      } else {
+        setSelectedExampleIndex(previousSectionCount)
       }
+      setCollaborationTrace(Array.isArray(payload.collaboration_trace) ? payload.collaboration_trace : [])
       setActiveView(nextKind === 'summary' ? 'practice' : 'examples')
       setBackendNotice(TEXT.artifactReady)
       void loadSessionSummaries()
@@ -1780,7 +1881,7 @@ function App() {
         return
       }
 
-      const payload = (await response.json()) as { session_id?: string; submission?: ExerciseSubmissionState }
+      const payload = (await response.json()) as { session_id?: string; submission?: ExerciseSubmissionState; collaboration_trace?: CollaborationRecord[] }
       if (!isActiveSession(requestSessionId) || (payload.session_id && payload.session_id !== requestSessionId)) {
         return
       }
@@ -1794,6 +1895,7 @@ function App() {
           [requestExerciseKey]: payload.submission?.user_code ?? userCode,
         }))
       }
+      setCollaborationTrace(Array.isArray(payload.collaboration_trace) ? payload.collaboration_trace : [])
       setBackendNotice(TEXT.reviewSaved)
       void loadSessionSummaries()
     } catch {
@@ -1864,45 +1966,16 @@ function App() {
     }
   }
 
-  const handleTogglePathStep = async (stepIndex: number, completed: boolean) => {
-    if (!sessionId) {
+  useEffect(() => {
+    if (activeView !== 'path' || !generation || !sessionId || onlineResources.length > 0 || onlineResourcesLoading) {
       return
     }
-
-    const requestSessionId = sessionId
-    try {
-      const response = await fetch('/api/path/progress', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          session_id: requestSessionId,
-          step_index: stepIndex,
-          completed,
-        }),
-      })
-
-      if (!isActiveSession(requestSessionId)) {
-        return
-      }
-      if (!response.ok) {
-        setBackendNotice(await readErrorDetail(response, '学习路径状态保存失败。'))
-        return
-      }
-
-      const payload = (await response.json()) as { session_id?: string; path_progress?: PathProgressState }
-      if (!isActiveSession(requestSessionId) || payload.session_id !== requestSessionId) {
-        return
-      }
-      setPathProgress(normalizePathProgress(payload.path_progress))
-      setBackendNotice(completed ? '已标记完成。' : '已取消完成。')
-    } catch {
-      if (isActiveSession(requestSessionId)) {
-        setBackendNotice('学习路径状态保存失败。')
-      }
+    if (autoLoadedPathResourcesRef.current[sessionId]) {
+      return
     }
-  }
+    autoLoadedPathResourcesRef.current[sessionId] = true
+    void handleLoadOnlineResources()
+  }, [activeView, generation, onlineResources.length, onlineResourcesLoading, sessionId])
 
   const handleSubmitPathAssessment = async (stepIndex: number) => {
     if (!sessionId || pathAssessmentLoading !== null) {
@@ -1910,7 +1983,7 @@ function App() {
     }
     const feedback = (pathFeedbackDrafts[String(stepIndex)] ?? pathAssessments[String(stepIndex)]?.feedback ?? '').trim()
     if (!feedback) {
-      setBackendNotice('先写一句完成反馈，再提交评估。')
+      setBackendNotice('先写一句学习反馈，再提交跟进。')
       return
     }
 
@@ -1933,7 +2006,7 @@ function App() {
         return
       }
       if (!response.ok) {
-        setBackendNotice(await readErrorDetail(response, '阶段评估失败。'))
+        setBackendNotice(await readErrorDetail(response, '跟进分析失败。'))
         return
       }
 
@@ -1947,10 +2020,10 @@ function App() {
       }
       setPathProgress(normalizePathProgress(payload.path_progress))
       setPathAssessments(normalizePathAssessments(payload.path_assessments))
-      setBackendNotice('阶段评估已更新。')
+      setBackendNotice('跟进建议已更新。')
     } catch {
       if (isActiveSession(requestSessionId)) {
-        setBackendNotice('阶段评估失败。')
+        setBackendNotice('跟进分析失败。')
       }
     } finally {
       if (isActiveSession(requestSessionId)) {
@@ -2570,6 +2643,39 @@ function App() {
                       </div>
                     </section>
 
+                    <section className="collaboration-panel" aria-label="学习助手协作">
+                      <div className="collaboration-head">
+                        <div>
+                          <span className="profile-hero-eyebrow">学习助手协作</span>
+                          <h3>{`5 个学习环节协同推进，已完成 ${completedCollaborationCount} 个`}</h3>
+                        </div>
+                        <ClipboardCheck size={18} />
+                      </div>
+                      <div className="collaboration-track" aria-hidden="true">
+                        {collaborationSteps.map((item, index) => (
+                          <div className={item.status === '待开始' || item.status === '待完成' ? 'collaboration-dot pending' : 'collaboration-dot done'} key={'dot-' + item.role}>
+                            <span>{index + 1}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="collaboration-grid">
+                        {collaborationSteps.map((item) => (
+                          <article className={item.status === '待开始' || item.status === '待完成' ? 'collaboration-card pending' : 'collaboration-card'} key={item.role}>
+                            <div className="collaboration-card-top">
+                              <strong>{normalizeText(item.title, '学习协作')}</strong>
+                              <span>{normalizeText(item.status, '待开始')}</span>
+                            </div>
+                            <p>{normalizeText(item.output_summary, '已根据当前学习情况完成处理。')}</p>
+                            <div className="collaboration-source-row">
+                              {(Array.isArray(item.used_sources) ? item.used_sources : []).slice(0, 3).map((source) => (
+                                <em key={item.role + '-' + source}>{source}</em>
+                              ))}
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+
                     <section className="profile-card-grid">
                       {profileOverviewCards.map((item) => {
                         const Icon = item.icon
@@ -2714,6 +2820,7 @@ function App() {
                                 '\u8fd9\u91cc\u4f1a\u7ed9\u4f60\u5b8c\u6574\u793a\u4f8b\u3001\u89e3\u9898\u601d\u8def\u548c\u4ee3\u7801\u8bb2\u89e3\u3002',
                               )}
                             </p>
+                            <span className="collaboration-inline-note">内容已根据学习情况和课程资料生成。</span>
                           </div>
                           <div className="secondary-actions artifact-inline-actions">
                             <button className="ghost-button" type="button" onClick={() => void handleArtifact('qa_script')} disabled={artifactLoading !== null}>
@@ -2800,6 +2907,7 @@ function App() {
                           <div className="practice-stage-copy">
                             <h3>{TEXT.summaryArtifact}</h3>
                             <p>先读清题目和要求，再在下方直接写你的 Python 解答。</p>
+                            <span className="collaboration-inline-note">练习已根据学习情况和课程资料生成。</span>
                           </div>
                           <div className="secondary-actions artifact-inline-actions">
                             <button className="ghost-button" type="button" onClick={() => void handleArtifact('summary')} disabled={artifactLoading !== null}>
@@ -2875,6 +2983,7 @@ function App() {
                                   <div className="review-summary">
                                     <span>{TEXT.reviewTitle}</span>
                                     <p>{normalizeText(currentReview.summary, '这道题已经给出本次点评。')}</p>
+                                    <em>反馈已结合题目要求和你的代码。</em>
                                   </div>
                                   <div className="review-grid">
                                     <section className="review-column">
@@ -2930,26 +3039,78 @@ function App() {
                   <div className="result-stack">
                     <section className="path-progress-panel">
                       <div>
-                        <span>学习进度</span>
-                        <strong>{`已完成 ${completedPathCount} / 总计 ${pathSteps.length}`}</strong>
-                        <p>{pathUsesGeneratedContent ? '依据当前典例和自我练习整理。' : '当前显示学习方案中的路径安排。'}</p>
+                        <span>跟进进度</span>
+                        <strong>{`已掌握 ${completedPathCount} / 总计 ${pathSteps.length}`}</strong>
+                        <p>{pathUsesGeneratedContent ? '按“理论资料 -> 典例精讲 -> 自我练习 -> 反馈跟进”的顺序推进。' : '按当前学习方案推进，每一步都可以提交学习反馈。'}</p>
+                        <em className="collaboration-inline-note">路径已整合理论资料、典例、练习和反馈。</em>
                       </div>
                       <div className="path-progress-bar" aria-label="学习路径完成进度">
                         <span style={{ width: `${pathCompletionPercent}%` }} />
                       </div>
                     </section>
+                    <section className="path-phase-panel" aria-label="学习路径阶段">
+                      <div>
+                        <span>1</span>
+                        <strong>先学理论</strong>
+                        <p>{onlineResourcesLoading ? '正在匹配资料' : onlineResources.length > 0 ? `已匹配 ${onlineResources.length} 条资料` : '待匹配资料'}</p>
+                      </div>
+                      <div>
+                        <span>2</span>
+                        <strong>再看典例</strong>
+                        <p>{scriptSections.length > 0 ? `${scriptSections.length} 个典例` : '待生成典例'}</p>
+                      </div>
+                      <div>
+                        <span>3</span>
+                        <strong>最后练习</strong>
+                        <p>{exerciseSections.length > 0 ? `${exerciseSections.length} 道练习` : '待生成练习'}</p>
+                      </div>
+                      <div>
+                        <span>4</span>
+                        <strong>反馈跟进</strong>
+                        <p>{assessedPathCount > 0 ? `已跟进 ${assessedPathCount} 步` : '待提交反馈'}</p>
+                      </div>
+                    </section>
                     {pathMermaidChart ? (
-                      <section className="path-map-panel">
-                        <div className="section-title">
+                      <details className="path-map-panel path-map-details">
+                        <summary className="section-title">
                           <Route size={16} />
-                          学习路线图
+                          查看路线图
+                        </summary>
+                        <div className="path-map-toolbar" aria-label="路线图缩放">
+                          <button
+                            type="button"
+                            onClick={() => setPathMapZoom((value) => Math.max(0.6, Number((value - 0.15).toFixed(2))))}
+                            disabled={pathMapZoom <= 0.6}
+                            aria-label="缩小路线图"
+                          >
+                            <ZoomOut size={15} />
+                          </button>
+                          <span>{`${Math.round(pathMapZoom * 100)}%`}</span>
+                          <button
+                            type="button"
+                            onClick={() => setPathMapZoom((value) => Math.min(2.2, Number((value + 0.15).toFixed(2))))}
+                            disabled={pathMapZoom >= 2.2}
+                            aria-label="放大路线图"
+                          >
+                            <ZoomIn size={15} />
+                          </button>
+                          <button type="button" onClick={() => setPathMapZoom(1)} aria-label="重置路线图缩放">
+                            <RefreshCw size={14} />
+                            重置
+                          </button>
                         </div>
-                        <MermaidDiagram chart={pathMermaidChart} />
-                      </section>
+                        <div className="path-map-viewport">
+                          <div className="path-map-zoom-space" style={{ width: `${pathMapZoom * 100}%`, minHeight: `${pathMapZoom * 520}px` }}>
+                            <div className="path-map-zoom-layer" style={{ transform: `scale(${pathMapZoom})` }}>
+                              <MermaidDiagram chart={pathMermaidChart} />
+                            </div>
+                          </div>
+                        </div>
+                      </details>
                     ) : null}
                     <div className="path-list">
                       {pathSteps.map((step, index) => {
-                        const completed = pathProgress[String(index)] === true
+                        const completed = effectivePathProgress[String(index)] === true
                         const assessment = pathAssessments[String(index)]
                         const feedbackDraft = pathFeedbackDrafts[String(index)] ?? assessment?.feedback ?? ''
                         const masteryLabel =
@@ -2958,73 +3119,171 @@ function App() {
                             : assessment?.assessment.mastery === 'needs_help'
                               ? '还需补强'
                               : '部分掌握'
+                        const followStatus = assessment
+                          ? masteryLabel
+                          : feedbackDraft.trim()
+                            ? '待评估'
+                            : '待跟进'
+                        const pathCardClass = [
+                          'path-card',
+                          completed ? 'completed' : '',
+                          assessment ? `mastery-${assessment.assessment.mastery}` : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')
+                        const theoryResources = getPathTheoryResources(onlineResources, index)
+                        const exampleSection = scriptSections[index]
+                        const exerciseSection = exerciseSections[index]
+                        const exampleTitle = exampleSection ? simplifySectionHeading(exampleSection.heading, `典例 ${index + 1}`) : ''
+                        const exerciseTitle = exerciseSection ? simplifySectionHeading(exerciseSection.heading, `练习 ${index + 1}`) : ''
                         return (
-                        <article className={completed ? 'path-card completed' : 'path-card'} key={`${step.title}-${index}`}>
+                        <article className={pathCardClass} key={`${step.title}-${index}`}>
                           <div className="path-head">
                             <div className="path-title-group">
                               <div className="path-index">{index + 1}</div>
                               <strong>{normalizeText(step.title, '\u5b66\u4e60\u6b65\u9aa4')}</strong>
                             </div>
-                            <div className="path-duration">
-                              <Clock size={15} />
-                              <span>{normalizeText(step.duration, '\u5efa\u8bae\u65f6\u957f\u5f85\u751f\u6210')}</span>
+                            <div className="path-head-meta">
+                              <span className="path-status-pill">{followStatus}</span>
+                              <div className="path-duration">
+                                <Clock size={15} />
+                                <span>{normalizeText(step.duration, '\u5efa\u8bae\u65f6\u957f\u5f85\u751f\u6210')}</span>
+                              </div>
                             </div>
                           </div>
-                          <div className="path-task-block">
-                            <span>学习任务</span>
-                            <p>{normalizeText(step.detail, '\u8fd9\u91cc\u4f1a\u7ed9\u51fa\u8fd9\u4e00\u9636\u6bb5\u8981\u505a\u4ec0\u4e48\u3002')}</p>
+                          <div className="path-learning-loop">
+                            <section className="path-loop-section">
+                              <div className="path-loop-head">
+                                <span>先学理论</span>
+                                <strong>补齐概念和知识点</strong>
+                              </div>
+                              {theoryResources.length > 0 ? (
+                                <div className="path-resource-list">
+                                  {theoryResources.slice(0, 2).map((resource) => {
+                                    const provider = normalizeText(resource.provider, '学习资料')
+                                    const title = normalizeText(resource.title, '外部学习资料')
+                                    const summary = normalizeText(resource.summary, '先通过这份资料补齐相关概念。')
+                                    const iconUrl = getResourceIconUrl(resource.url)
+                                    const matchLabels = (resource.match_labels ?? []).map((label) => normalizeTagLabel(label)).filter(Boolean)
+                                    return (
+                                      <a className="path-resource-card" href={resource.url} target="_blank" rel="noreferrer" key={`${index}-${resource.id}`}>
+                                        <div className="resource-icon resource-site-icon">
+                                          {iconUrl ? (
+                                            <img
+                                              src={iconUrl}
+                                              alt=""
+                                              loading="lazy"
+                                              referrerPolicy="no-referrer"
+                                              onError={(event) => {
+                                                event.currentTarget.style.display = 'none'
+                                              }}
+                                            />
+                                          ) : (
+                                            <Globe size={15} />
+                                          )}
+                                        </div>
+                                        <div>
+                                          <span>{`${provider} · ${getResourceKindLabel(resource.kind)}`}</span>
+                                          <strong>{title}</strong>
+                                          <p>{summary}</p>
+                                          {matchLabels.length > 0 ? (
+                                            <div className="match-tags compact-tags">
+                                              {matchLabels.slice(0, 2).map((label) => (
+                                                <span className="match-tag" key={`${resource.id}-${label}`}>{label}</span>
+                                              ))}
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                      </a>
+                                    )
+                                  })}
+                                </div>
+                              ) : (
+                                <div className="path-loop-empty">
+                                  <p>{onlineResourcesLoading ? '正在按当前薄弱点匹配理论资料。' : '还没有匹配到理论资料，可以先更新外部资料。'}</p>
+                                  <button className="path-inline-button" type="button" onClick={() => void handleLoadOnlineResources()} disabled={onlineResourcesLoading}>
+                                    <Globe size={15} />
+                                    {onlineResourcesLoading ? '匹配中...' : '更新外部资料'}
+                                  </button>
+                                </div>
+                              )}
+                            </section>
+                            <section className="path-loop-section">
+                              <div className="path-loop-head">
+                                <span>再看典例</span>
+                                <strong>{exampleTitle || '暂未生成典例'}</strong>
+                              </div>
+                              <p>{exampleTitle ? `先看《${exampleTitle}》的题目拆解、关键代码和易错点。` : '生成典例精讲后，这里会关联对应的讲解。'}</p>
+                              {exampleSection ? (
+                                <button className="path-inline-button" type="button" onClick={() => {
+                                  setSelectedExampleIndex(index)
+                                  setActiveView('examples')
+                                }}>
+                                  <MessageSquareText size={15} />
+                                  打开典例
+                                </button>
+                              ) : null}
+                            </section>
+                            <section className="path-loop-section">
+                              <div className="path-loop-head">
+                                <span>最后练习</span>
+                                <strong>{exerciseTitle || '暂未生成练习'}</strong>
+                              </div>
+                              <p>{exerciseTitle ? `完成《${exerciseTitle}》，写代码并提交点评。` : '生成自我练习后，这里会关联对应题目。'}</p>
+                              {exerciseSection ? (
+                                <button className="path-inline-button" type="button" onClick={() => {
+                                  setSelectedPracticeIndex(index)
+                                  setActiveView('practice')
+                                }}>
+                                  <ClipboardCheck size={15} />
+                                  去做练习
+                                </button>
+                              ) : null}
+                            </section>
                           </div>
                           <div className="path-outcome-block">
                             <span>完成标准</span>
                             <em>{normalizeText(step.expected_outcome, '\u5b8c\u6210\u540e\u4f60\u4f1a\u66f4\u6e05\u695a\u4e0b\u4e00\u6b65\u600e\u4e48\u5b66\u3002')}</em>
                           </div>
-                          <div className="path-card-actions">
-                            <button className={completed ? 'path-complete-button active' : 'path-complete-button'} type="button" onClick={() => void handleTogglePathStep(index, !completed)}>
-                              <Check size={15} />
-                              {completed ? '取消完成' : '标记完成'}
-                            </button>
-                          </div>
-                          {completed ? (
-                            <div className="path-assessment-panel">
-                              <label>
-                                <span>完成反馈</span>
-                                <textarea
-                                  value={feedbackDraft}
-                                  onChange={(event) =>
-                                    setPathFeedbackDrafts((current) => ({
-                                      ...current,
-                                      [String(index)]: event.target.value,
-                                    }))
-                                  }
-                                  placeholder="比如：这一步能看懂，但 append 和 extend 还是容易混。"
-                                  rows={3}
-                                />
-                              </label>
-                              <div className="path-card-actions">
-                                <button className="path-assess-button" type="button" onClick={() => void handleSubmitPathAssessment(index)} disabled={pathAssessmentLoading !== null}>
-                                  <Sparkles size={15} />
-                                  {pathAssessmentLoading === index ? '评估中...' : assessment ? '更新评估' : '提交评估'}
-                                </button>
-                              </div>
-                              {assessment ? (
-                                <div className={`path-assessment-result ${assessment.assessment.mastery}`}>
-                                  <div className="path-assessment-head">
-                                    <span>{masteryLabel}</span>
-                                    <em>{formatSessionTime(assessment.updated_at)}</em>
-                                  </div>
-                                  <p>{normalizeText(assessment.assessment.summary, '已根据你的反馈更新这一阶段的学习评估。')}</p>
-                                  {assessment.assessment.issues.length > 0 ? (
-                                    <ul>
-                                      {assessment.assessment.issues.map((item) => (
-                                        <li key={item}>{normalizeText(item, '待补充')}</li>
-                                      ))}
-                                    </ul>
-                                  ) : null}
-                                  <strong>{normalizeText(assessment.assessment.next_advice, '继续按学习路径进入下一步。')}</strong>
-                                </div>
-                              ) : null}
+                          <div className="path-assessment-panel">
+                            <label>
+                              <span>学习反馈</span>
+                              <textarea
+                                value={feedbackDraft}
+                                onChange={(event) =>
+                                  setPathFeedbackDrafts((current) => ({
+                                    ...current,
+                                    [String(index)]: event.target.value,
+                                  }))
+                                }
+                                placeholder="比如：这一步能看懂，但 append 和 extend 还是容易混。也可以写你完成了哪道题、哪里卡住。"
+                                rows={3}
+                              />
+                            </label>
+                            <div className="path-card-actions">
+                              <button className="path-assess-button" type="button" onClick={() => void handleSubmitPathAssessment(index)} disabled={pathAssessmentLoading !== null}>
+                                <Sparkles size={15} />
+                                {pathAssessmentLoading === index ? '分析中...' : assessment ? '更新跟进' : '提交跟进'}
+                              </button>
                             </div>
-                          ) : null}
+                            {assessment ? (
+                              <div className={`path-assessment-result ${assessment.assessment.mastery}`}>
+                                <div className="path-assessment-head">
+                                  <span>{masteryLabel}</span>
+                                  <em>{formatSessionTime(assessment.updated_at)}</em>
+                                </div>
+                                <p>{normalizeText(assessment.assessment.summary, '已根据你的反馈更新这一阶段的学习评估。')}</p>
+                                {assessment.assessment.issues.length > 0 ? (
+                                  <ul>
+                                    {assessment.assessment.issues.map((item) => (
+                                      <li key={item}>{normalizeText(item, '待补充')}</li>
+                                    ))}
+                                  </ul>
+                                ) : null}
+                                <strong>{normalizeText(assessment.assessment.next_advice, '继续按学习路径进入下一步。')}</strong>
+                              </div>
+                            ) : null}
+                          </div>
                         </article>
                         )
                       })}
