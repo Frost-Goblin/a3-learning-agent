@@ -12,12 +12,14 @@ import {
   Globe,
   History,
   MessageSquareText,
+  Moon,
   PencilLine,
   RefreshCw,
   Route,
   SendHorizontal,
   Settings as SettingsIcon,
   Sparkles,
+  Sun,
   Target,
   TimerReset,
   Trash2,
@@ -31,6 +33,7 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github.css'
 import './App.css'
+import { useTheme } from './useTheme'
 
 type AppStage = 'chatting' | 'ready_to_generate' | 'generated' | 'refining'
 type ArtifactKind = 'summary' | 'qa_script'
@@ -142,20 +145,37 @@ type MarkdownCodeProps = {
 
 let mermaidCounter = 0
 
-mermaid.initialize({
-  startOnLoad: false,
-  securityLevel: 'strict',
-  theme: 'base',
-  themeVariables: {
-    primaryColor: '#eef6ff',
-    primaryTextColor: '#162033',
-    primaryBorderColor: '#8bb8e8',
-    lineColor: '#0b6bcb',
-    secondaryColor: '#f8fafc',
-    tertiaryColor: '#fff9db',
-    fontFamily: 'Inter, "Microsoft YaHei", sans-serif',
-  },
-})
+const MERMAID_THEME_LIGHT = {
+  primaryColor: '#eef6ff',
+  primaryTextColor: '#162033',
+  primaryBorderColor: '#8bb8e8',
+  lineColor: '#0b6bcb',
+  secondaryColor: '#f8fafc',
+  tertiaryColor: '#fff9db',
+}
+
+const MERMAID_THEME_DARK = {
+  primaryColor: '#1e3a5f',
+  primaryTextColor: '#e2e8f0',
+  primaryBorderColor: '#3b6db5',
+  lineColor: '#5ba4f0',
+  secondaryColor: '#1e293b',
+  tertiaryColor: '#2d3a4e',
+}
+
+function getMermaidConfig(isDark: boolean) {
+  return {
+    startOnLoad: false,
+    securityLevel: 'strict' as const,
+    theme: (isDark ? 'dark' : 'base') as 'dark' | 'base',
+    themeVariables: {
+      fontFamily: 'Inter, "Microsoft YaHei", sans-serif',
+      ...(isDark ? MERMAID_THEME_DARK : MERMAID_THEME_LIGHT),
+    },
+  }
+}
+
+mermaid.initialize(getMermaidConfig(false))
 
 type ExerciseReviewState = {
   exercise_index: number
@@ -1046,6 +1066,7 @@ const DEFAULT_EMBEDDING_PROVIDER_OPTIONS: ProviderOption[] = [
 ]
 
 function App() {
+  const { theme, toggle: toggleTheme } = useTheme()
   const course = FALLBACK_COURSE
   const [depth, setDepth] = useState(2)
   const [version, setVersion] = useState(1)
@@ -1222,6 +1243,10 @@ function App() {
         : messages,
     [messages, pendingMessage],
   )
+  useEffect(() => {
+    mermaid.initialize(getMermaidConfig(theme === 'dark'))
+  }, [theme])
+
   useEffect(() => {
     if (activeView !== 'chat') {
       return
@@ -2486,6 +2511,9 @@ function App() {
           </nav>
 
           <div className="workspace-actions">
+            <button className="ghost-button" type="button" onClick={toggleTheme} aria-label={theme === 'dark' ? '\u5207\u6362\u5230\u4eae\u8272\u6a21\u5f0f' : '\u5207\u6362\u5230\u6697\u8272\u6a21\u5f0f'}>
+              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
             <button className="ghost-button" type="button" onClick={handleOpenSettings}>
               <SettingsIcon size={16} />
               {'\u8bbe\u7f6e'}

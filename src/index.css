@@ -1,13 +1,80 @@
 :root {
+  /* Surface */
   --bg: #f5f7fb;
   --panel: #ffffff;
   --soft: #f8fafc;
+
+  /* Borders & separators */
   --line: #d9e2ec;
+
+  /* Text */
   --text: #162033;
   --muted: #607086;
+
+  /* Brand */
   --accent: #0b6bcb;
+  --accent-soft: rgba(11, 107, 203, 0.08);
+  --accent-border: rgba(11, 107, 203, 0.16);
+  --brand-deep: #122e8a;
   --gold: #d99a12;
+
+  /* Semantic */
+  --danger: #b42318;
+  --danger-soft: rgba(195, 53, 47, 0.06);
+  --danger-border: rgba(195, 53, 47, 0.18);
+  --danger-text: #a3362f;
+  --success: #118950;
+  --success-soft: rgba(17, 137, 80, 0.08);
+  --success-border: rgba(17, 137, 80, 0.18);
+
+  /* Code blocks */
+  --code-bg: #f6f8fa;
+  --code-border: #d8dee4;
+  --code-bar-bg: #eef2f7;
+  --code-bar-text: #57606a;
+  --code-inline-bg: #f6f8fa;
+  --code-inline-text: #344054;
+
+  /* Markdown */
+  --md-heading: #122e8a;
+  --md-heading-line: #e6edf5;
+  --md-strong: #0b5cad;
+  --md-em-bg: #fff3bf;
+  --md-em-text: #7c5300;
+  --md-del-bg: #fff1f0;
+  --md-del-text: #b42318;
+  --md-blockquote-bg: #fff9db;
+  --md-blockquote-border: #f5d565;
+  --md-blockquote-accent: #f2b705;
+  --md-blockquote-text: #5f4700;
+
+  /* UI chrome */
+  --dialog-backdrop: rgba(15, 23, 42, 0.32);
+  --dialog-shadow: 0 24px 70px rgba(15, 23, 42, 0.22);
+  --rail-bg: rgba(255, 255, 255, 0.72);
+  --tabs-bg: rgba(255, 255, 255, 0.72);
+  --card-glass-bg: rgba(255, 255, 255, 0.72);
+  --composer-bg: #ffffff;
+  --composer-border: rgba(219, 226, 239, 0.86);
+  --composer-shadow: 0 12px 28px rgba(22, 32, 51, 0.04);
+  --action-btn-bg: #f7fbff;
+  --action-btn-text: #122e8a;
+  --action-btn-hover-bg: #eef6ff;
+
+  /* Mermaid */
+  --mermaid-bg: #fbfcff;
+  --mermaid-error-bg: #fff9db;
+  --mermaid-error-border: #f5d565;
+
+  /* Shadows */
   --shadow: 0 12px 30px rgba(22, 32, 51, 0.08);
+  --shadow-sm: 0 8px 24px rgba(22, 32, 51, 0.03);
+  --shadow-md: 0 10px 28px rgba(22, 32, 51, 0.04);
+
+  /* Misc */
+  --badge-bg: #122e8a;
+  --badge-text: #f5efea;
+  --divider-soft: rgba(219, 226, 239, 0.72);
 
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -18,6 +85,65 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Dark theme ───────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg: #0f1724;
+  --panel: #1a2332;
+  --soft: #1e293b;
+  --line: #2d3a4e;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #5ba4f0;
+  --accent-soft: rgba(91, 164, 240, 0.1);
+  --accent-border: rgba(91, 164, 240, 0.2);
+  --brand-deep: #8ab4f8;
+  --gold: #f0c040;
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.1);
+  --danger-border: rgba(248, 113, 113, 0.2);
+  --danger-text: #fca5a5;
+  --success: #4ade80;
+  --success-soft: rgba(74, 222, 128, 0.1);
+  --success-border: rgba(74, 222, 128, 0.2);
+  --code-bg: #0f1724;
+  --code-border: #2d3a4e;
+  --code-bar-bg: #1a2332;
+  --code-bar-text: #94a3b8;
+  --code-inline-bg: #1e293b;
+  --code-inline-text: #cbd5e1;
+  --md-heading: #e2e8f0;
+  --md-heading-line: #2d3a4e;
+  --md-strong: #8ab4f8;
+  --md-em-bg: #3d3520;
+  --md-em-text: #f0c040;
+  --md-del-bg: #3d2020;
+  --md-del-text: #fca5a5;
+  --md-blockquote-bg: #2a2410;
+  --md-blockquote-border: #4a3d10;
+  --md-blockquote-accent: #f0c040;
+  --md-blockquote-text: #d4b840;
+  --dialog-backdrop: rgba(0, 0, 0, 0.55);
+  --dialog-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+  --rail-bg: rgba(26, 35, 50, 0.85);
+  --tabs-bg: rgba(26, 35, 50, 0.85);
+  --card-glass-bg: rgba(26, 35, 50, 0.85);
+  --composer-bg: #1a2332;
+  --composer-border: rgba(45, 58, 78, 0.86);
+  --composer-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+  --action-btn-bg: #1e293b;
+  --action-btn-text: #8ab4f8;
+  --action-btn-hover-bg: #243044;
+  --mermaid-bg: #1a2332;
+  --mermaid-error-bg: #2a2410;
+  --mermaid-error-border: #4a3d10;
+  --shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 8px 24px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.3);
+  --badge-bg: #3b6db5;
+  --badge-text: #f5efea;
+  --divider-soft: rgba(45, 58, 78, 0.72);
 }
 
 * {
@@ -38,7 +164,7 @@ body {
   height: 100vh;
   margin: 0;
   background:
-    linear-gradient(180deg, rgba(11, 107, 203, 0.08), transparent 280px),
+    linear-gradient(180deg, var(--accent-soft), transparent 280px),
     var(--bg);
 }
 
