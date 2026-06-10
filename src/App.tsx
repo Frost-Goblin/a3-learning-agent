@@ -1,292 +1,52 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
-import type { MouseEvent, ReactNode } from 'react'
-import mermaid from 'mermaid'
+import type { MouseEvent } from 'react'
 import {
-  BookOpen,
-  Check,
-  Clock,
   ClipboardCheck,
-  Copy,
-  Compass,
-  ExternalLink,
   Globe,
-  History,
   MessageSquareText,
-  PencilLine,
   RefreshCw,
-  Route,
-  SendHorizontal,
   Settings as SettingsIcon,
   Sparkles,
-  Target,
-  TimerReset,
-  Trash2,
-  UserRound,
-  X,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github.css'
 import './App.css'
-
-type AppStage = 'chatting' | 'ready_to_generate' | 'generated' | 'refining'
-type ArtifactKind = 'summary' | 'qa_script'
-type AppView = 'chat' | 'profile' | 'resources' | 'examples' | 'practice' | 'path'
-type SuggestedActionType = 'generate_plan' | 'generate_examples' | 'generate_practice' | 'recommend_resources'
-
-type Course = {
-  id: string
-  badge: string
-  name: string
-  summary: string
-  difficulty: string
-  seeds: string[]
-  deliverables: string[]
-  painPoint: string
-}
-
-type ChatMessage = {
-  role: 'assistant' | 'user'
-  content: string
-  suggested_actions?: SuggestedAction[]
-}
-
-type DisplayMessage = ChatMessage & {
-  status?: 'thinking'
-}
-
-type SuggestedAction = {
-  type: SuggestedActionType
-  label: string
-}
-
-type ProfileSummary = {
-  summary: string
-  dimensions: {
-    knowledge: string
-    pace: string
-    preference: string
-    weakness: string
-    motivation: string
-    evaluation: string
-  }
-  confidence?: number
-  next_focus?: string
-  weakness_tags?: string[]
-  preferred_format_tags?: string[]
-  level_tag?: string
-}
-
-type Resource = {
-  kind: string
-  title: string
-  description: string
-  tag: string
-  content_preview: string[]
-  suitability_reason: string
-}
-
-type PathStep = {
-  title: string
-  detail: string
-  duration: string
-  expected_outcome: string
-}
-
-type PathProgressState = Record<string, boolean>
-
-type PathAssessmentState = {
-  step_index: number
-  feedback: string
-  assessment: {
-    step_index: number
-    mastery: 'good' | 'partial' | 'needs_help'
-    summary: string
-    issues: string[]
-    next_advice: string
-  }
-  updated_at: string
-}
-
-type PathAssessmentCollection = Record<string, PathAssessmentState>
-
-type ArtifactSection = {
-  heading: string
-  lines: string[]
-}
-
-type ArtifactState = {
-  kind: ArtifactKind
-  title: string
-  summary: string
-  sections: ArtifactSection[]
-  exercise_submissions?: ExerciseSubmissionCollection
-}
-
-type ArtifactCollection = Partial<Record<ArtifactKind, ArtifactState>>
-
-type ArtifactSegment = {
-  kind: 'markdown' | 'code'
-  content: string
-  language?: string
-}
-
-type MarkdownCodeProps = {
-  inline?: boolean
-  className?: string
-  children?: ReactNode
-}
-
-let mermaidCounter = 0
-
-mermaid.initialize({
-  startOnLoad: false,
-  securityLevel: 'strict',
-  theme: 'base',
-  themeVariables: {
-    primaryColor: '#eef6ff',
-    primaryTextColor: '#162033',
-    primaryBorderColor: '#8bb8e8',
-    lineColor: '#0b6bcb',
-    secondaryColor: '#f8fafc',
-    tertiaryColor: '#fff9db',
-    fontFamily: 'Inter, "Microsoft YaHei", sans-serif',
-  },
-})
-
-type ExerciseReviewState = {
-  exercise_index: number
-  status: string
-  summary: string
-  strengths: string[]
-  issues: string[]
-  next_steps: string[]
-  can_view_reference: boolean
-}
-
-type ExerciseSubmissionState = {
-  exercise_index: number
-  exercise_heading: string
-  prompt_lines: string[]
-  user_code: string
-  review: ExerciseReviewState
-  updated_at: string
-  can_view_reference: boolean
-  reference_open: boolean
-}
-
-type ExerciseSubmissionCollection = Record<string, ExerciseSubmissionState>
-
-type CollaborationRecord = {
-  role: string
-  title: string
-  status: string
-  input_summary: string
-  output_summary: string
-  used_sources: string[]
-  updated_at: string
-}
-
-type OnlineResource = {
-  id: string
-  title: string
-  url: string
-  provider: string
-  kind: string
-  level: string
-  summary: string
-  recommended_reason: string
-  match_labels?: string[]
-  knowledge_tags?: string[]
-  format_tags?: string[]
-  level_tag?: string
-}
-
-type GenerationState = {
-  profile: ProfileSummary
-  resources: Resource[]
-  path: PathStep[]
-  mode_hint: string
-  depth_label: string
-  using_materials: boolean
-}
-
-type RunRecord = {
-  id: number
-  label: string
-  detail: string
-}
-
-type SessionSummary = {
-  session_id: string
-  course_id: string
-  title: string
-  preview: string
-  updated_at: string
-  message_count: number
-  profile_completion: number
-  ready_to_generate: boolean
-  has_generation: boolean
-}
-
-type SessionDetail = {
-  session_id: string
-  course_id: string
-  title: string
-  custom_title: string
-  preview: string
-  created_at: string
-  updated_at: string
-  messages: ChatMessage[]
-  profile_completion: number
-  missing_slots: string[]
-  ready_to_generate: boolean
-  latest_generation: GenerationState | null
-  latest_artifact: ArtifactState | null
-  latest_artifacts?: ArtifactCollection
-  exercise_submissions?: ExerciseSubmissionCollection
-  path_progress?: PathProgressState
-  path_assessments?: PathAssessmentCollection
-  online_resources?: OnlineResource[]
-  generation_history?: RunRecord[]
-  collaboration_trace?: CollaborationRecord[]
-}
-
-type AppSettingsState = {
-  chat_configured: boolean
-  embedding_configured: boolean
-  llm_configured: boolean
-  chat_provider: string
-  embedding_provider: string
-  deepseek_api_key_masked: string
-  dashscope_api_key_masked: string
-  deepseek_base_url: string
-  deepseek_chat_model: string
-  dashscope_base_url: string
-  dashscope_embedding_model: string
-  chat_provider_options?: ProviderOption[]
-  embedding_provider_options?: ProviderOption[]
-}
-
-type AppSettingsDraft = {
-  chat_provider: string
-  embedding_provider: string
-  deepseek_api_key: string
-  deepseek_base_url: string
-  deepseek_chat_model: string
-  dashscope_api_key: string
-  dashscope_base_url: string
-  dashscope_embedding_model: string
-}
-
-type ProviderOption = {
-  id: string
-  label: string
-  models: string[]
-}
+import { ChatPanel } from './components/ChatPanel'
+import { ExamplesPanel } from './components/ExamplesPanel'
+import { LearningMarkdown, parseArtifactSegments } from './components/LearningMarkdown'
+import { PathPanel } from './components/PathPanel'
+import { PracticePanel } from './components/PracticePanel'
+import { ProfilePanel } from './components/ProfilePanel'
+import { ResourcesPanel } from './components/ResourcesPanel'
+import { SessionSidebar } from './components/SessionSidebar'
+import { SettingsDialog } from './components/SettingsDialog'
+import type {
+  AppSettingsDraft,
+  AppSettingsState,
+  AppStage,
+  AppView,
+  ArtifactCollection,
+  ArtifactKind,
+  ArtifactSection,
+  ArtifactState,
+  ChatMessage,
+  CollaborationRecord,
+  Course,
+  DisplayMessage,
+  ExerciseSubmissionCollection,
+  ExerciseSubmissionState,
+  GenerationState,
+  OnlineResource,
+  PathAssessmentCollection,
+  PathAssessmentState,
+  PathProgressState,
+  PathStep,
+  ProviderOption,
+  RunRecord,
+  SessionDetail,
+  SessionSummary,
+  SuggestedAction,
+  SuggestedActionType,
+} from './types'
 
 const LAST_SESSION_KEY = 'a3-learning-agent:last-session'
 
@@ -435,15 +195,6 @@ const FALLBACK_COURSES: Course[] = [
 ]
 
 const FALLBACK_COURSE = FALLBACK_COURSES[0]
-
-const DIMENSION_LABELS: Record<keyof ProfileSummary['dimensions'], string> = {
-  knowledge: '\u77e5\u8bc6\u57fa\u7840',
-  pace: '\u5b66\u4e60\u8282\u594f',
-  preference: '\u504f\u597d\u65b9\u5f0f',
-  weakness: '\u5f53\u524d\u96be\u70b9',
-  motivation: '\u5b66\u4e60\u52a8\u529b',
-  evaluation: '\u53cd\u9988\u504f\u597d',
-}
 
 const VIEW_LABELS: Record<AppView, string> = {
   chat: TEXT.chat,
@@ -598,151 +349,6 @@ function normalizeMessages(messages: ChatMessage[]) {
       suggested_actions: [],
     }
   })
-}
-
-function prepareAssistantMarkdown(content: string) {
-  const lines = content.split('\n')
-  let inFence = false
-
-  return lines
-    .map((line) => {
-      if (!line.startsWith('```')) {
-        return line
-      }
-
-      const fenceInfo = line.slice(3).trim()
-      if (!inFence) {
-        inFence = true
-        return fenceInfo ? line : '```python'
-      }
-
-      inFence = false
-      return '```'
-    })
-    .join('\n')
-}
-
-function parseArtifactSegments(content: string): ArtifactSegment[] {
-  const segments: ArtifactSegment[] = []
-  const regex = /```([\w-]*)\n([\s\S]*?)```/g
-  let lastIndex = 0
-
-  for (const match of content.matchAll(regex)) {
-    const matchIndex = match.index ?? 0
-    const before = content.slice(lastIndex, matchIndex).trim()
-    if (before) {
-      segments.push({ kind: 'markdown', content: before })
-    }
-
-    const language = match[1]?.trim() || undefined
-    const code = match[2]?.replace(/\n+$/, '') ?? ''
-    if (code.trim()) {
-      segments.push({ kind: 'code', content: code, language })
-    }
-
-    lastIndex = matchIndex + match[0].length
-  }
-
-  const after = content.slice(lastIndex).trim()
-  if (after) {
-    segments.push({ kind: 'markdown', content: after })
-  }
-
-  return segments.length > 0 ? segments : [{ kind: 'markdown', content }]
-}
-
-function MermaidDiagram({ chart }: { chart: string }) {
-  const [svg, setSvg] = useState('')
-  const [error, setError] = useState(false)
-  const diagramId = useMemo(() => `learning-mermaid-${++mermaidCounter}`, [])
-
-  useEffect(() => {
-    let cancelled = false
-    setSvg('')
-    setError(false)
-
-    void mermaid
-      .render(diagramId, chart)
-      .then((result) => {
-        if (!cancelled) {
-          setSvg(result.svg)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setError(true)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [chart, diagramId])
-
-  if (error) {
-    return (
-      <div className="mermaid-diagram mermaid-error">
-        <span>思维导图语法需要调整</span>
-        <pre>{chart}</pre>
-      </div>
-    )
-  }
-
-  return <div className="mermaid-diagram" dangerouslySetInnerHTML={{ __html: svg || '<span>正在生成图示...</span>' }} />
-}
-
-function MarkdownCodeBlock({ inline, className = '', children }: MarkdownCodeProps) {
-  const [copied, setCopied] = useState(false)
-  const rawCode = String(children ?? '').replace(/\n$/, '')
-  const language = /language-([\w-]+)/.exec(className)?.[1] ?? 'python'
-
-  if (inline || (!className && !rawCode.includes('\n'))) {
-    return <code className={className}>{children}</code>
-  }
-
-  if (language.toLowerCase() === 'mermaid') {
-    return <MermaidDiagram chart={rawCode} />
-  }
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(rawCode)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1200)
-    } catch {
-      setCopied(false)
-    }
-  }
-
-  return (
-    <div className="learning-code-block">
-      <div className="learning-code-bar">
-        <span>{language === 'python' || language === 'py' ? 'main.py' : language}</span>
-        <button type="button" onClick={() => void handleCopy()} aria-label="澶嶅埗浠ｇ爜">
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-          {copied ? '已复制' : '复制'}
-        </button>
-      </div>
-      <pre>
-        <code className={className}>{children}</code>
-      </pre>
-    </div>
-  )
-}
-
-function LearningMarkdown({ content }: { content: string }) {
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypeHighlight]}
-      components={{
-        pre: ({ children }) => <>{children}</>,
-        code: MarkdownCodeBlock,
-      }}
-    >
-      {prepareAssistantMarkdown(content)}
-    </ReactMarkdown>
-  )
 }
 
 function normalizeExerciseSubmissions(payload?: ExerciseSubmissionCollection | null): ExerciseSubmissionCollection {
@@ -919,8 +525,8 @@ function getSessionPreview(summary: SessionSummary) {
 
 function simplifySectionHeading(heading: string, fallback: string) {
   return normalizeText(heading, fallback)
-    .replace(/^(练习|典例|典例精讲|缁冧範|鍏镐緥绮捐)\s*\d+\s*[：:锛?]\s*/, '')
-    .replace(/^(练习|典例|典例精讲|缁冧範|鍏镐緥绮捐)\s*/, '')
+    .replace(/^(练习|典例|典例精讲)\s*\d+\s*[：:]\s*/, '')
+    .replace(/^(练习|典例|典例精讲)\s*/, '')
     .trim()
 }
 
@@ -1145,7 +751,6 @@ function App() {
   const currentExercise = exerciseSections[activePracticeIndex] ?? null
   const currentExample = scriptSections[activeExampleIndex] ?? null
   const currentSubmission = exerciseSubmissions[selectedExerciseKey] ?? null
-  const currentReview = currentSubmission?.review ?? null
   const currentDraft = exerciseDrafts[selectedExerciseKey] ?? currentSubmission?.user_code ?? ''
   const pathSteps = useMemo(
     () => buildPathStepsFromArtifacts(exerciseSections, scriptSections, generation?.path ?? []),
@@ -1249,60 +854,6 @@ function App() {
   const preferredFormatTags = (generation?.profile.preferred_format_tags ?? [])
     .map((tag) => normalizeTagLabel(tag))
     .filter(Boolean)
-  const profileOverviewCards = generation
-    ? [
-        {
-          key: 'knowledge',
-          label: DIMENSION_LABELS.knowledge,
-          value: normalizeText(generation.profile.dimensions.knowledge, '\u5f85\u8865\u5145'),
-          icon: BookOpen,
-          tone: 'neutral',
-        },
-        {
-          key: 'pace',
-          label: DIMENSION_LABELS.pace,
-          value: normalizeText(generation.profile.dimensions.pace, '\u5f85\u8865\u5145'),
-          icon: TimerReset,
-          tone: 'neutral',
-        },
-        {
-          key: 'preference',
-          label: DIMENSION_LABELS.preference,
-          value: normalizeText(generation.profile.dimensions.preference, '\u5f85\u8865\u5145'),
-          icon: PencilLine,
-          tone: 'neutral',
-        },
-      ]
-    : []
-  const profileInsightCards = generation
-    ? [
-        {
-          key: 'weakness',
-          label: DIMENSION_LABELS.weakness,
-          value: normalizeText(generation.profile.dimensions.weakness, '\u5f85\u8865\u5145'),
-          icon: Target,
-          tone: 'danger',
-        },
-        {
-          key: 'motivation',
-          label: DIMENSION_LABELS.motivation,
-          value: normalizeText(generation.profile.dimensions.motivation, '\u5f85\u8865\u5145'),
-          icon: Sparkles,
-          tone: 'neutral',
-        },
-        {
-          key: 'evaluation',
-          label: DIMENSION_LABELS.evaluation,
-          value: normalizeText(generation.profile.dimensions.evaluation, '\u5f85\u8865\u5145'),
-          icon: Compass,
-          tone: 'neutral',
-        },
-      ]
-    : []
-  const levelLabelMap: Record<string, string> = {
-    beginner: '\u57fa\u7840\u9636\u6bb5',
-    intermediate: '\u63d0\u5347\u9636\u6bb5',
-  }
   const chatProviderOptions =
     appSettings?.chat_provider_options && appSettings.chat_provider_options.length > 0
       ? appSettings.chat_provider_options
@@ -1311,9 +862,6 @@ function App() {
     appSettings?.embedding_provider_options && appSettings.embedding_provider_options.length > 0
       ? appSettings.embedding_provider_options
       : DEFAULT_EMBEDDING_PROVIDER_OPTIONS
-  const selectedChatProvider = chatProviderOptions.find((item) => item.id === settingsDraft.chat_provider) ?? chatProviderOptions[0]
-  const selectedEmbeddingProvider =
-    embeddingProviderOptions.find((item) => item.id === settingsDraft.embedding_provider) ?? embeddingProviderOptions[0]
 
   const applySettingsPayload = (payload: AppSettingsState) => {
     setAppSettings(payload)
@@ -2080,81 +1628,6 @@ function App() {
     await handleLoadOnlineResources()
   }
 
-  const renderOnlineResourcesSection = () => (
-    <section className="support-section">
-      <div className="section-title">
-        <Globe size={16} />
-        {TEXT.onlineResourcesTitle}
-      </div>
-      <p className="preview-reason">{TEXT.onlineResourcesHint}</p>
-      <div className="secondary-actions">
-        <button className="ghost-button" type="button" onClick={() => void handleLoadOnlineResources()} disabled={onlineResourcesLoading}>
-          <Globe size={16} />
-          {onlineResourcesLoading ? TEXT.loadingOnlineResources : TEXT.fetchOnlineResources}
-        </button>
-      </div>
-      {onlineResources.length > 0 ? (
-        <div className="resource-list">
-          {onlineResources.map((item) => {
-            const provider = normalizeText(item.provider, '学习资料')
-            const title = normalizeText(item.title, '澶栭儴璧勬枡')
-            const summary = normalizeText(item.summary, '这里会补充与你当前问题更相关的外部学习资料。')
-            const matchLabels = (item.match_labels ?? []).map((label) => normalizeTagLabel(label)).filter(Boolean)
-            const iconUrl = getResourceIconUrl(item.url)
-
-            return (
-            <a
-              key={item.id}
-              className="resource-card external-resource-card"
-              href={item.url}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <div className="resource-head">
-                <div className="resource-icon resource-site-icon">
-                  {iconUrl ? (
-                    <img
-                      src={iconUrl}
-                      alt=""
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                      onError={(event) => {
-                        event.currentTarget.style.display = 'none'
-                      }}
-                    />
-                  ) : (
-                    <Globe size={16} />
-                  )}
-                </div>
-                <div>
-                  <span>{provider}</span>
-                  <strong>{title}</strong>
-                </div>
-              </div>
-              {matchLabels.length > 0 ? (
-                <div className="match-tags" aria-label={TEXT.matchedWeakness}>
-                  {matchLabels.slice(0, 3).map((label) => (
-                    <span className="match-tag" key={item.id + '-' + label}>
-                      {label}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              <p>{summary}</p>
-              <span className="resource-link">
-                {TEXT.openResource}
-                <ExternalLink size={14} />
-              </span>
-            </a>
-            )
-          })}
-        </div>
-      ) : (
-        <p className="history-empty">{TEXT.emptyOnlineResources}</p>
-      )}
-    </section>
-  )
-
   return (
     <div className="app-shell">
       <div className="sr-only" aria-live="polite">
@@ -2170,286 +1643,39 @@ function App() {
       </header>
 
       {settingsOpen ? (
-        <div className="settings-backdrop" role="presentation" onMouseDown={() => setSettingsOpen(false)}>
-          <section className="settings-dialog" role="dialog" aria-modal="true" aria-label="模型设置" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="settings-head">
-              <div>
-                <h2>模型设置</h2>
-                <p>选择服务商和模型，只需要填写对应的 API Key。</p>
-              </div>
-              <button className="icon-button" type="button" onClick={() => setSettingsOpen(false)} aria-label="关闭设置">
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="settings-body settings-body-provider">
-              <div className="settings-group">
-                <h3>对话模型</h3>
-                <p>用于聊天、学习情况总结、典例和练习生成。</p>
-              </div>
-
-              <label className="settings-field provider-field">
-                <span>服务商</span>
-                <select
-                  value={settingsDraft.chat_provider}
-                  onChange={(event) => {
-                    const provider = chatProviderOptions.find((item) => item.id === event.target.value) ?? chatProviderOptions[0]
-                    setSettingsDraft((current) => ({
-                      ...current,
-                      chat_provider: provider.id,
-                      deepseek_chat_model: provider.models[0] ?? current.deepseek_chat_model,
-                    }))
-                  }}
-                >
-                  {chatProviderOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="settings-field provider-field">
-                <span>模型</span>
-                {settingsDraft.chat_provider === 'custom' ? (
-                  <input
-                    value={settingsDraft.deepseek_chat_model}
-                    placeholder="例如：gpt-4.1-mini"
-                    onChange={(event) => setSettingsDraft((current) => ({ ...current, deepseek_chat_model: event.target.value }))}
-                  />
-                ) : (
-                  <select
-                    value={settingsDraft.deepseek_chat_model}
-                    onChange={(event) => setSettingsDraft((current) => ({ ...current, deepseek_chat_model: event.target.value }))}
-                  >
-                    {selectedChatProvider.models.map((model) => (
-                      <option key={model} value={model}>
-                        {model}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </label>
-
-              {settingsDraft.chat_provider === 'custom' ? (
-                <label className="settings-field provider-field wide-field">
-                  <span>接口地址</span>
-                  <input
-                    value={settingsDraft.deepseek_base_url}
-                    placeholder="例如：https://api.example.com/v1"
-                    onChange={(event) => setSettingsDraft((current) => ({ ...current, deepseek_base_url: event.target.value }))}
-                  />
-                </label>
-              ) : null}
-
-              <label className="settings-field provider-field wide-field">
-                <span>API Key</span>
-                <input
-                  type="password"
-                  value={settingsDraft.deepseek_api_key}
-                  placeholder={appSettings?.deepseek_api_key_masked ? '已配置：' + appSettings.deepseek_api_key_masked : '输入所选服务商的 API Key'}
-                  onChange={(event) => setSettingsDraft((current) => ({ ...current, deepseek_api_key: event.target.value }))}
-                />
-              </label>
-
-              <div className="settings-group">
-                <h3>资料检索</h3>
-                <p>用于课程资料索引和相似内容检索。</p>
-              </div>
-
-              <label className="settings-field provider-field">
-                <span>服务商</span>
-                <select
-                  value={settingsDraft.embedding_provider}
-                  onChange={(event) => {
-                    const provider = embeddingProviderOptions.find((item) => item.id === event.target.value) ?? embeddingProviderOptions[0]
-                    setSettingsDraft((current) => ({
-                      ...current,
-                      embedding_provider: provider.id,
-                      dashscope_embedding_model: provider.models[0] ?? current.dashscope_embedding_model,
-                    }))
-                  }}
-                >
-                  {embeddingProviderOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="settings-field provider-field">
-                <span>模型</span>
-                {settingsDraft.embedding_provider === 'custom' ? (
-                  <input
-                    value={settingsDraft.dashscope_embedding_model}
-                    placeholder="例如：text-embedding-3-small"
-                    onChange={(event) => setSettingsDraft((current) => ({ ...current, dashscope_embedding_model: event.target.value }))}
-                  />
-                ) : (
-                  <select
-                    value={settingsDraft.dashscope_embedding_model}
-                    onChange={(event) => setSettingsDraft((current) => ({ ...current, dashscope_embedding_model: event.target.value }))}
-                  >
-                    {selectedEmbeddingProvider.models.map((model) => (
-                      <option key={model} value={model}>
-                        {model}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </label>
-
-              {settingsDraft.embedding_provider === 'custom' ? (
-                <label className="settings-field provider-field wide-field">
-                  <span>接口地址</span>
-                  <input
-                    value={settingsDraft.dashscope_base_url}
-                    placeholder="例如：https://api.example.com/v1"
-                    onChange={(event) => setSettingsDraft((current) => ({ ...current, dashscope_base_url: event.target.value }))}
-                  />
-                </label>
-              ) : null}
-
-              <label className="settings-field provider-field wide-field">
-                <span>API Key</span>
-                <input
-                  type="password"
-                  value={settingsDraft.dashscope_api_key}
-                  placeholder={appSettings?.dashscope_api_key_masked ? '已配置：' + appSettings.dashscope_api_key_masked : '输入所选服务商的 API Key'}
-                  onChange={(event) => setSettingsDraft((current) => ({ ...current, dashscope_api_key: event.target.value }))}
-                />
-              </label>
-              <label className="settings-field">
-                <span>DeepSeek 瀵硅瘽 Key</span>
-                <input
-                  type="password"
-                  value={settingsDraft.deepseek_api_key}
-                  placeholder={appSettings?.deepseek_api_key_masked ? '已配置：' + appSettings.deepseek_api_key_masked : '输入 API Key'}
-                  onChange={(event) => setSettingsDraft((current) => ({ ...current, deepseek_api_key: event.target.value }))}
-                />
-              </label>
-
-              <label className="settings-field">
-                <span>DeepSeek 妯″瀷</span>
-                <input
-                  value={settingsDraft.deepseek_chat_model}
-                  onChange={(event) => setSettingsDraft((current) => ({ ...current, deepseek_chat_model: event.target.value }))}
-                />
-              </label>
-
-              <label className="settings-field wide-field">
-                <span>DeepSeek 鍦板潃</span>
-                <input
-                  value={settingsDraft.deepseek_base_url}
-                  onChange={(event) => setSettingsDraft((current) => ({ ...current, deepseek_base_url: event.target.value }))}
-                />
-              </label>
-
-              <label className="settings-field">
-                <span>鍗冮棶鍚戦噺 Key</span>
-                <input
-                  type="password"
-                  value={settingsDraft.dashscope_api_key}
-                  placeholder={appSettings?.dashscope_api_key_masked ? '已配置：' + appSettings.dashscope_api_key_masked : '输入 API Key'}
-                  onChange={(event) => setSettingsDraft((current) => ({ ...current, dashscope_api_key: event.target.value }))}
-                />
-              </label>
-
-              <label className="settings-field">
-                <span>鍚戦噺妯″瀷</span>
-                <input
-                  value={settingsDraft.dashscope_embedding_model}
-                  onChange={(event) => setSettingsDraft((current) => ({ ...current, dashscope_embedding_model: event.target.value }))}
-                />
-              </label>
-
-              <label className="settings-field wide-field">
-                <span>鍗冮棶鍦板潃</span>
-                <input
-                  value={settingsDraft.dashscope_base_url}
-                  onChange={(event) => setSettingsDraft((current) => ({ ...current, dashscope_base_url: event.target.value }))}
-                />
-              </label>
-            </div>
-
-            <div className="settings-foot">
-              <span>{appSettings?.llm_configured ? '当前配置完整' : '请补全对话 Key 和向量 Key'}</span>
-              <div className="settings-actions">
-                <button className="ghost-button" type="button" onClick={() => setSettingsOpen(false)}>
-                  取消
-                </button>
-                <button className="primary-button" type="button" onClick={() => void handleSaveSettings()} disabled={settingsSaving}>
-                  {settingsSaving ? '保存中...' : '保存设置'}
-                </button>
-              </div>
-            </div>
-          </section>
-        </div>
+        <SettingsDialog
+          appSettings={appSettings}
+          settingsDraft={settingsDraft}
+          setSettingsDraft={setSettingsDraft}
+          chatProviderOptions={chatProviderOptions}
+          embeddingProviderOptions={embeddingProviderOptions}
+          settingsSaving={settingsSaving}
+          onClose={() => setSettingsOpen(false)}
+          onSave={() => void handleSaveSettings()}
+        />
       ) : null}
 
       <main className="workspace-shell">
-        <aside className="history-rail panel">
-          <div className="panel-head">
-            <div>
-              <h2>{TEXT.recentChats}</h2>
-              <p>{TEXT.recentChatsHint}</p>
-            </div>
-            <History size={18} />
-          </div>
-
-          <div className="session-list">
-            {sessionSummaries.length > 0 ? (
-              sessionSummaries.map((item) => (
-                <article
-                  key={item.session_id}
-                  className={item.session_id === sessionId ? 'session-card active' : 'session-card'}
-                  onClick={() => handleRestoreSession(item)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      handleRestoreSession(item)
-                    }
-                  }}
-                  role="button"
-                  tabIndex={0}
-                >
-                  <div className="session-card-top">
-                    <strong>{getSessionTitle(item)}</strong>
-                    <span>{formatSessionTime(item.updated_at)}</span>
-                  </div>
-                  <p>{getSessionPreview(item)}</p>
-                  <div className="session-actions">
-                    <button
-                      type="button"
-                      className="session-action-button"
-                      onClick={(event) => void handleRenameSession(item, event)}
-                      aria-label={TEXT.rename}
-                    >
-                      <PencilLine size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      className="session-action-button danger"
-                      onClick={(event) => void handleDeleteSession(item, event)}
-                      aria-label={TEXT.delete}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                  <div className="session-meta">
-                    <em>
-                      {item.message_count} {TEXT.records}
-                    </em>
-                    <span>{item.has_generation ? TEXT.planReady : TEXT.continueChat}</span>
-                  </div>
-                </article>
-              ))
-            ) : (
-              <div className="empty-state">{TEXT.noHistory}</div>
-            )}
-          </div>
-        </aside>
+        <SessionSidebar
+          sessions={sessionSummaries}
+          activeSessionId={sessionId}
+          labels={{
+            recentChats: TEXT.recentChats,
+            recentChatsHint: TEXT.recentChatsHint,
+            noHistory: TEXT.noHistory,
+            rename: TEXT.rename,
+            delete: TEXT.delete,
+            records: TEXT.records,
+            planReady: TEXT.planReady,
+            continueChat: TEXT.continueChat,
+          }}
+          getTitle={getSessionTitle}
+          getPreview={getSessionPreview}
+          formatTime={formatSessionTime}
+          onRestore={handleRestoreSession}
+          onRename={(summary, event) => void handleRenameSession(summary, event)}
+          onDelete={(summary, event) => void handleDeleteSession(summary, event)}
+        />
 
         <div className="main-workspace">
           <section className="overview-strip user-overview-strip">
@@ -2498,801 +1724,208 @@ function App() {
 
           <section className="page-shell">
             {activeView === 'chat' ? (
-              <section className="page page-chat panel">
-                <div className="panel-head">
-                  <div>
-                    <h2>{TEXT.chat}</h2>
-                  </div>
-                  <MessageSquareText size={18} />
-                </div>
-
-                <div className="chat-layout">
-                  <div className="chat-main">
-                    <div className="dialog-scroller" ref={dialogScrollerRef}>
-                      {displayMessages.length > 0 ? (
-                        displayMessages.map((message, index) => (
-                          <article className={message.role === 'assistant' ? 'message-row assistant' : 'message-row user'} key={message.role + '-' + index + '-' + (message.status ?? 'done')}>
-                            <div className="message-avatar">{message.role === 'assistant' ? <Sparkles size={16} /> : <UserRound size={16} />}</div>
-                            <div className={message.status === 'thinking' ? 'message-bubble thinking' : 'message-bubble'}>
-                              <span className="message-label">{message.role === 'assistant' ? TEXT.assistant : TEXT.you}</span>
-                              {message.role === 'assistant' ? (
-                                <div className="chat-markdown">
-                                  <LearningMarkdown content={message.content} />
-                                </div>
-                              ) : (
-                                <p>{message.content}</p>
-                              )}
-                              {!pendingMessage && message.role === 'assistant' && message.status !== 'thinking' && index === lastAssistantMessageIndex && message.suggested_actions?.length ? (
-                                <div className="message-action-row" aria-label="\u53ef\u7ee7\u7eed\u6267\u884c\u7684\u64cd\u4f5c">
-                                  {message.suggested_actions.map((action) => (
-                                    <button
-                                      className="message-action-button"
-                                      type="button"
-                                      key={action.type}
-                                      onClick={() => void handleSuggestedAction(action)}
-                                      disabled={isSuggestedActionDisabled(action.type)}
-                                    >
-                                      {renderSuggestedActionIcon(action.type)}
-                                      {normalizeText(action.label, SUGGESTED_ACTION_LABELS[action.type])}
-                                    </button>
-                                  ))}
-                                </div>
-                              ) : null}
-                            </div>
-                          </article>
-                        ))
-                      ) : (
-                        <div className="empty-state">{TEXT.preparing}</div>
-                      )}
-                    </div>
-
-                    <div className="composer">
-                      <textarea
-                        value={draft}
-                        onChange={(event) => setDraft(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' && !event.shiftKey) {
-                            event.preventDefault()
-                            void handleSendMessage()
-                          }
-                        }}
-                        placeholder={TEXT.placeholder}
-                        rows={4}
-                        disabled={!sessionId || sessionLoading}
-                      />
-                      <div className="composer-actions">
-                        <div className="stage-pill">{STAGE_LABELS[stage]}</div>
-                        <div className="composer-buttons">
-                          <button className="ghost-button" type="button" onClick={() => void handleGenerate()} disabled={!llmConfigured || !sessionId || generationLoading}>
-                            <Sparkles size={16} />
-                            {generationLoading ? TEXT.generating : TEXT.generatePlan}
-                          </button>
-                          <button className="primary-button" type="button" onClick={() => void handleSendMessage()} disabled={!draft.trim() || messageLoading || sessionLoading}>
-                            <SendHorizontal size={16} />
-                            {messageLoading ? TEXT.thinking : TEXT.send}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-              </section>
+              <ChatPanel
+                labels={{
+                  chat: TEXT.chat,
+                  assistant: TEXT.assistant,
+                  you: TEXT.you,
+                  preparing: TEXT.preparing,
+                  placeholder: TEXT.placeholder,
+                  generating: TEXT.generating,
+                  generatePlan: TEXT.generatePlan,
+                  thinking: TEXT.thinking,
+                  send: TEXT.send,
+                }}
+                stageLabel={STAGE_LABELS[stage]}
+                messages={displayMessages}
+                pendingMessage={pendingMessage}
+                lastAssistantMessageIndex={lastAssistantMessageIndex}
+                draft={draft}
+                dialogScrollerRef={dialogScrollerRef}
+                sessionId={sessionId}
+                llmConfigured={llmConfigured}
+                sessionLoading={sessionLoading}
+                messageLoading={messageLoading}
+                generationLoading={generationLoading}
+                setDraft={setDraft}
+                onSendMessage={() => void handleSendMessage()}
+                onGenerate={() => void handleGenerate()}
+                onSuggestedAction={(action) => void handleSuggestedAction(action)}
+                isSuggestedActionDisabled={isSuggestedActionDisabled}
+                renderSuggestedActionIcon={renderSuggestedActionIcon}
+                getSuggestedActionLabel={(action) => normalizeText(action.label, SUGGESTED_ACTION_LABELS[action.type])}
+              />
             ) : null}
 
             {activeView === 'profile' ? (
-              <section className="page panel">
-                <div className="panel-head">
-                  <div>
-                    <h2>{TEXT.profile}</h2>
-                  </div>
-                  <UserRound size={18} />
-                </div>
-                {generation ? (
-                  <div className="result-stack">
-                    <section className="profile-hero">
-                      <div className="profile-hero-copy">
-                        <span className="profile-hero-eyebrow">{TEXT.profile}</span>
-                        <p className="summary-text profile-hero-summary">
-                          {normalizeText(generation.profile.summary, TEXT.summaryFallback)}
-                        </p>
-                        <div className="profile-hero-meta">
-                          <span className="profile-meta-pill">
-                            {levelLabelMap[generation.profile.level_tag ?? ''] ?? '\u5f53\u524d\u9636\u6bb5'}
-                          </span>
-                          <span className="profile-meta-pill">
-                            {'信息完整度 ' + (generation.profile.confidence ?? 0) + '%'}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="profile-focus-panel">
-                        <span className="profile-focus-label">{TEXT.nextFocus}</span>
-                        <strong>{normalizeText(generation.profile.next_focus ?? '', TEXT.nextFocusFallback)}</strong>
-                        <p>后续资料和练习会优先围绕这个方向展开。</p>
-                      </div>
-                    </section>
-
-                    <section className="profile-tag-strip">
-                      <div className="profile-tag-block">
-                        <span>当前薄弱点</span>
-                        <div className="match-tags">
-                          {weaknessTags.length > 0 ? (
-                            weaknessTags.slice(0, 6).map((tag) => (
-                              <span className="match-tag critical" key={tag}>
-                                {tag}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="match-tag">待识别</span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="profile-tag-block">
-                        <span>更适合的学习方式</span>
-                        <div className="match-tags">
-                          {preferredFormatTags.length > 0 ? (
-                            preferredFormatTags.map((tag) => (
-                              <span className="match-tag subtle" key={tag}>
-                                {tag}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="match-tag">待识别</span>
-                          )}
-                        </div>
-                      </div>
-                    </section>
-
-                    <section className="collaboration-panel" aria-label="学习助手协作">
-                      <div className="collaboration-head">
-                        <div>
-                          <span className="profile-hero-eyebrow">学习助手协作</span>
-                          <h3>{`5 个学习环节协同推进，已完成 ${completedCollaborationCount} 个`}</h3>
-                        </div>
-                        <ClipboardCheck size={18} />
-                      </div>
-                      <div className="collaboration-track" aria-hidden="true">
-                        {collaborationSteps.map((item, index) => (
-                          <div className={item.status === '待开始' || item.status === '待完成' ? 'collaboration-dot pending' : 'collaboration-dot done'} key={'dot-' + item.role}>
-                            <span>{index + 1}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="collaboration-grid">
-                        {collaborationSteps.map((item) => (
-                          <article className={item.status === '待开始' || item.status === '待完成' ? 'collaboration-card pending' : 'collaboration-card'} key={item.role}>
-                            <div className="collaboration-card-top">
-                              <strong>{normalizeText(item.title, '学习协作')}</strong>
-                              <span>{normalizeText(item.status, '待开始')}</span>
-                            </div>
-                            <p>{normalizeText(item.output_summary, '已根据当前学习情况完成处理。')}</p>
-                            <div className="collaboration-source-row">
-                              {(Array.isArray(item.used_sources) ? item.used_sources : []).slice(0, 3).map((source) => (
-                                <em key={item.role + '-' + source}>{source}</em>
-                              ))}
-                            </div>
-                          </article>
-                        ))}
-                      </div>
-                    </section>
-
-                    <section className="profile-card-grid">
-                      {profileOverviewCards.map((item) => {
-                        const Icon = item.icon
-                        return (
-                          <article className="profile-insight-card" key={item.key}>
-                            <div className="profile-insight-head">
-                              <div className="resource-icon">
-                                <Icon size={16} />
-                              </div>
-                              <div>
-                                <span>{item.label}</span>
-                              </div>
-                            </div>
-                            <p>{item.value}</p>
-                          </article>
-                        )
-                      })}
-                    </section>
-
-                    <section className="profile-spotlight-grid">
-                      {profileInsightCards.map((item) => {
-                        const Icon = item.icon
-                        return (
-                          <article
-                            className={item.tone === 'danger' ? 'profile-spotlight-card danger' : 'profile-spotlight-card'}
-                            key={item.key}
-                          >
-                            <div className="profile-insight-head">
-                              <div className="resource-icon">
-                                <Icon size={16} />
-                              </div>
-                              <div>
-                                <span>{item.label}</span>
-                              </div>
-                            </div>
-                            <strong>{item.value}</strong>
-                          </article>
-                        )
-                      })}
-                    </section>
-
-                  </div>
-                ) : (
-                  <div className="empty-state">{TEXT.emptyProfile}</div>
-                )}
-              </section>
+              <ProfilePanel
+                labels={{
+                  profile: TEXT.profile,
+                  summaryFallback: TEXT.summaryFallback,
+                  nextFocus: TEXT.nextFocus,
+                  nextFocusFallback: TEXT.nextFocusFallback,
+                  emptyProfile: TEXT.emptyProfile,
+                }}
+                generation={generation}
+                weaknessTags={weaknessTags}
+                preferredFormatTags={preferredFormatTags}
+                collaborationSteps={collaborationSteps}
+                completedCollaborationCount={completedCollaborationCount}
+                normalizeText={normalizeText}
+              />
             ) : null}
 
             {activeView === 'resources' ? (
-              <section className="page panel">
-                <div className="panel-head">
-                  <div>
-                    <h2>{TEXT.resources}</h2>
-                  </div>
-                  <BookOpen size={18} />
-                </div>
-                {generation ? (
-                  <div>
-                    <section className="preview-panel">
-                      <div className="section-title">
-                        <Compass size={16} />
-                        {TEXT.resourceFocusTitle}
-                      </div>
-                      <h3>
-                        {weaknessTags.length > 0
-                          ? '需要重点补强：' + weaknessTags.slice(0, 4).join('、')
-                          : normalizeText(generation.profile.next_focus ?? '', TEXT.nextFocusFallback)}
-                      </h3>
-                      <p className="preview-reason">{TEXT.resourceFocusHint}</p>
-                      <div className="match-tags">
-                        {weaknessTags.length > 0 ? (
-                          weaknessTags.slice(0, 6).map((tag) => (
-                            <span className="match-tag critical" key={tag}>
-                              {tag}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="match-tag subtle">{TEXT.nextFocusFallback}</span>
-                        )}
-                      </div>
-                    </section>
-                    {renderOnlineResourcesSection()}
-                  </div>
-                ) : (
-                  <div>
-                    <div className="empty-state">{TEXT.emptyResources}</div>
-                    {renderOnlineResourcesSection()}
-                  </div>
-                )}
-              </section>
+              <ResourcesPanel
+                labels={{
+                  resources: TEXT.resources,
+                  resourceFocusTitle: TEXT.resourceFocusTitle,
+                  resourceFocusHint: TEXT.resourceFocusHint,
+                  nextFocusFallback: TEXT.nextFocusFallback,
+                  emptyResources: TEXT.emptyResources,
+                  onlineResourcesTitle: TEXT.onlineResourcesTitle,
+                  onlineResourcesHint: TEXT.onlineResourcesHint,
+                  loadingOnlineResources: TEXT.loadingOnlineResources,
+                  fetchOnlineResources: TEXT.fetchOnlineResources,
+                  emptyOnlineResources: TEXT.emptyOnlineResources,
+                  matchedWeakness: TEXT.matchedWeakness,
+                  openResource: TEXT.openResource,
+                }}
+                generation={generation}
+                weaknessTags={weaknessTags}
+                onlineResources={onlineResources}
+                onlineResourcesLoading={onlineResourcesLoading}
+                normalizeText={normalizeText}
+                normalizeTagLabel={normalizeTagLabel}
+                getResourceIconUrl={getResourceIconUrl}
+                getResourceKindLabel={getResourceKindLabel}
+                onLoadOnlineResources={() => void handleLoadOnlineResources()}
+              />
             ) : null}
 
             {activeView === 'examples' ? (
-              <section className="page panel">
-                <div className="panel-head">
-                  <div>
-                    <h2>{TEXT.scriptArtifact}</h2>
-                  </div>
-                  <MessageSquareText size={18} />
-                </div>
-                <section className="support-section practice-layout">
-                  <aside className="practice-sidebar">
-                    <div className="practice-side-card">
-                      <span className="practice-side-label">{TEXT.scriptArtifact}</span>
-                      <p className="practice-side-hint">
-                        {'\u8fd9\u91cc\u5355\u72ec\u5c55\u793a\u5178\u578b\u4f8b\u9898\u3001\u89e3\u9898\u601d\u8def\u548c\u53c2\u8003\u4ee3\u7801\u3002'}
-                      </p>
-                    </div>
-
-                    {scriptSections.length > 0 ? (
-                      <div className="practice-side-card">
-                        <span className="practice-side-label">{TEXT.scriptArtifact}</span>
-                        <div className="practice-queue">
-                          {scriptSections.map((section, index) => (
-                            <button
-                              key={section.heading + '-' + index}
-                              type="button"
-                              className={activeExampleIndex === index ? 'practice-queue-item active' : 'practice-queue-item'}
-                              onClick={() => setSelectedExampleIndex(index)}
-                            >
-                              <div className="practice-queue-top">
-                                <strong>{'典例 ' + (index + 1)}</strong>
-                                <em>{'\u7cbe\u8bb2'}</em>
-                              </div>
-                              <span>{simplifySectionHeading(section.heading, '典例 ' + (index + 1))}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                  </aside>
-
-                  <div className="practice-stage">
-                    {exampleArtifact ? (
-                      <div className="artifact-card practice-artifact-card">
-                        <div className="practice-stage-head">
-                          <div className="practice-stage-copy">
-                            <h3>{TEXT.scriptArtifact}</h3>
-                            <p>
-                              {normalizeText(
-                                exampleArtifact.summary,
-                                '\u8fd9\u91cc\u4f1a\u7ed9\u4f60\u5b8c\u6574\u793a\u4f8b\u3001\u89e3\u9898\u601d\u8def\u548c\u4ee3\u7801\u8bb2\u89e3\u3002',
-                              )}
-                            </p>
-                            <span className="collaboration-inline-note">内容已根据学习情况和课程资料生成。</span>
-                          </div>
-                          <div className="secondary-actions artifact-inline-actions">
-                            <button className="ghost-button" type="button" onClick={() => void handleArtifact('qa_script')} disabled={artifactLoading !== null}>
-                              <MessageSquareText size={16} />
-                              {artifactLoading === 'qa_script' ? TEXT.generating : TEXT.regenerateScriptArtifact}
-                            </button>
-                          </div>
-                        </div>
-
-                        {currentExample ? (
-                          <div className="artifact-sections focused">
-                            <article key={currentExample.heading + '-' + activeExampleIndex}>
-                              <strong>{'典例 ' + (activeExampleIndex + 1)}</strong>
-                              <ArtifactSectionContent section={currentExample} sectionIndex={activeExampleIndex} keyPrefix="qa_script" />
-                            </article>
-                          </div>
-                        ) : (
-                          <div className="empty-state compact">{TEXT.emptyScriptArtifactHint}</div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="empty-state practice-empty-state">
-                        <strong>{TEXT.emptyScriptArtifactTitle}</strong>
-                        <p>{TEXT.emptyScriptArtifactHint}</p>
-                        <div className="secondary-actions">
-                          <button className="primary-button" type="button" onClick={() => void handleArtifact('qa_script')} disabled={artifactLoading !== null}>
-                            <MessageSquareText size={16} />
-                            {artifactLoading === 'qa_script' ? TEXT.generating : TEXT.generateScriptArtifact}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </section>
-              </section>
+              <ExamplesPanel
+                labels={{
+                  scriptArtifact: TEXT.scriptArtifact,
+                  generating: TEXT.generating,
+                  regenerateScriptArtifact: TEXT.regenerateScriptArtifact,
+                  generateScriptArtifact: TEXT.generateScriptArtifact,
+                  emptyScriptArtifactTitle: TEXT.emptyScriptArtifactTitle,
+                  emptyScriptArtifactHint: TEXT.emptyScriptArtifactHint,
+                }}
+                exampleArtifact={exampleArtifact}
+                scriptSections={scriptSections}
+                currentExample={currentExample}
+                activeExampleIndex={activeExampleIndex}
+                artifactLoading={artifactLoading}
+                normalizeText={normalizeText}
+                simplifySectionHeading={simplifySectionHeading}
+                renderArtifactSection={(section, sectionIndex, keyPrefix) => (
+                  <ArtifactSectionContent section={section} sectionIndex={sectionIndex} keyPrefix={keyPrefix} />
+                )}
+                onSelectExample={setSelectedExampleIndex}
+                onGenerateExample={() => void handleArtifact('qa_script')}
+              />
             ) : null}
 
             {activeView === 'practice' ? (
-              <section className="page panel">
-                <div className="panel-head">
-                  <div>
-                    <h2>{TEXT.practice}</h2>
-                  </div>
-                  <ClipboardCheck size={18} />
-                </div>
-                <section className="support-section practice-layout">
-                  <aside className="practice-sidebar">
-                    <div className="practice-side-card">
-                      <span className="practice-side-label">{TEXT.practice}</span>
-                      <p className="practice-side-hint">先看题目，再直接写下你的 Python 代码并提交点评。</p>
-                    </div>
-
-                    {exerciseSections.length > 0 ? (
-                      <div className="practice-side-card">
-                        <span className="practice-side-label">{TEXT.chooseExercise}</span>
-                        <div className="practice-queue">
-                          {exerciseSections.map((section, index) => {
-                            const itemKey = String(index)
-                            const submission = exerciseSubmissions[itemKey]
-                            return (
-                              <button
-                                key={section.heading + '-' + index}
-                                type="button"
-                                className={activePracticeIndex === index ? 'practice-queue-item active' : 'practice-queue-item'}
-                                onClick={() => setSelectedPracticeIndex(index)}
-                              >
-                                <div className="practice-queue-top">
-                                  <strong>{'练习 ' + (index + 1)}</strong>
-                                  <em>{submission ? '已点评' : '待作答'}</em>
-                                </div>
-                                <span>{simplifySectionHeading(section.heading, '练习 ' + (index + 1))}</span>
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    ) : null}
-                  </aside>
-
-                  <div className="practice-stage">
-                    {practiceArtifact ? (
-                      <div className="artifact-card practice-artifact-card">
-                        <div className="practice-stage-head">
-                          <div className="practice-stage-copy">
-                            <h3>{TEXT.summaryArtifact}</h3>
-                            <p>先读清题目和要求，再在下方直接写你的 Python 解答。</p>
-                            <span className="collaboration-inline-note">练习已根据学习情况和课程资料生成。</span>
-                          </div>
-                          <div className="secondary-actions artifact-inline-actions">
-                            <button className="ghost-button" type="button" onClick={() => void handleArtifact('summary')} disabled={artifactLoading !== null}>
-                              <ClipboardCheck size={16} />
-                              {artifactLoading === 'summary' ? TEXT.generating : TEXT.regenerateSummaryArtifact}
-                            </button>
-                          </div>
-                        </div>
-
-                        {currentExercise ? (
-                          <div className="artifact-sections focused">
-                            <article key={currentExercise.heading + '-' + activePracticeIndex}>
-                              <strong>{normalizeText(currentExercise.heading, '琛ュ厖鍐呭')}</strong>
-                              <ArtifactSectionContent section={currentExercise} sectionIndex={activePracticeIndex} keyPrefix="summary" />
-                            </article>
-                          </div>
-                        ) : (
-                          <div className="empty-state compact">{TEXT.noExerciseGenerated}</div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="empty-state practice-empty-state">
-                        <strong>{TEXT.emptySummaryArtifactTitle}</strong>
-                        <p>{TEXT.emptySummaryArtifactHint}</p>
-                        <div className="secondary-actions">
-                          <button className="primary-button" type="button" onClick={() => void handleArtifact('summary')} disabled={artifactLoading !== null}>
-                            <ClipboardCheck size={16} />
-                            {artifactLoading === 'summary' ? TEXT.generating : TEXT.generateSummaryArtifact}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {practiceArtifact ? (
-                      <div className="exercise-answer-panel">
-                        <div className="exercise-answer-head">
-                          <div>
-                            <span>{TEXT.answerPanelTitle}</span>
-                            <h3>{currentExercise ? simplifySectionHeading(currentExercise.heading, TEXT.noExerciseGenerated) : TEXT.noExerciseGenerated}</h3>
-                          </div>
-                          <p>{TEXT.answerPanelHint}</p>
-                        </div>
-                        <div className="exercise-answer-body">
-                          {currentExercise ? (
-                            <>
-                              <div className="exercise-editor-card">
-                                <textarea
-                                  className="answer-textarea"
-                                  value={currentDraft}
-                                  onChange={(event) =>
-                                    setExerciseDrafts((current) => ({
-                                      ...current,
-                                      [selectedExerciseKey]: event.target.value,
-                                    }))
-                                  }
-                                  placeholder={TEXT.answerPlaceholder}
-                                  spellCheck={false}
-                                />
-                                <div className="secondary-actions answer-actions">
-                                  <button className="primary-button" type="button" onClick={() => void handleSubmitExercise()} disabled={exerciseReviewLoading}>
-                                    <SendHorizontal size={16} />
-                                    {exerciseReviewLoading ? TEXT.reviewing : TEXT.submitAnswer}
-                                  </button>
-                                  {currentSubmission ? (
-                                    <span className="inline-meta">
-                                      {TEXT.answerUpdatedAt} {formatSessionTime(currentSubmission.updated_at)}
-                                    </span>
-                                  ) : null}
-                                </div>
-                              </div>
-                              {currentReview ? (
-                                <div className="review-panel">
-                                  <div className="review-summary">
-                                    <span>{TEXT.reviewTitle}</span>
-                                    <p>{normalizeText(currentReview.summary, '这道题已经给出本次点评。')}</p>
-                                    <em>反馈已结合题目要求和你的代码。</em>
-                                  </div>
-                                  <div className="review-grid">
-                                    <section className="review-column">
-                                      <strong>{TEXT.strengths}</strong>
-                                      <ul>
-                                        {(currentReview.strengths ?? []).map((item) => (
-                                          <li key={item}>{normalizeText(item, '待补充')}</li>
-                                        ))}
-                                      </ul>
-                                    </section>
-                                    <section className="review-column">
-                                      <strong>{TEXT.issues}</strong>
-                                      <ul>
-                                        {(currentReview.issues ?? []).map((item) => (
-                                          <li key={item}>{normalizeText(item, '待补充')}</li>
-                                        ))}
-                                      </ul>
-                                    </section>
-                                    <section className="review-column">
-                                      <strong>{TEXT.nextSteps}</strong>
-                                      <ul>
-                                        {(currentReview.next_steps ?? []).map((item) => (
-                                          <li key={item}>{normalizeText(item, '待补充')}</li>
-                                        ))}
-                                      </ul>
-                                    </section>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="empty-state compact">{TEXT.emptyReview}</div>
-                              )}
-                            </>
-                          ) : (
-                            <div className="empty-state compact">{TEXT.noExerciseGenerated}</div>
-                          )}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </section>
-              </section>
+              <PracticePanel
+                labels={{
+                  practice: TEXT.practice,
+                  chooseExercise: TEXT.chooseExercise,
+                  summaryArtifact: TEXT.summaryArtifact,
+                  generating: TEXT.generating,
+                  regenerateSummaryArtifact: TEXT.regenerateSummaryArtifact,
+                  generateSummaryArtifact: TEXT.generateSummaryArtifact,
+                  emptySummaryArtifactTitle: TEXT.emptySummaryArtifactTitle,
+                  emptySummaryArtifactHint: TEXT.emptySummaryArtifactHint,
+                  noExerciseGenerated: TEXT.noExerciseGenerated,
+                  answerPanelTitle: TEXT.answerPanelTitle,
+                  answerPanelHint: TEXT.answerPanelHint,
+                  answerPlaceholder: TEXT.answerPlaceholder,
+                  reviewing: TEXT.reviewing,
+                  submitAnswer: TEXT.submitAnswer,
+                  answerUpdatedAt: TEXT.answerUpdatedAt,
+                  reviewTitle: TEXT.reviewTitle,
+                  strengths: TEXT.strengths,
+                  issues: TEXT.issues,
+                  nextSteps: TEXT.nextSteps,
+                  emptyReview: TEXT.emptyReview,
+                }}
+                practiceArtifact={practiceArtifact}
+                exerciseSections={exerciseSections}
+                currentExercise={currentExercise}
+                activePracticeIndex={activePracticeIndex}
+                selectedExerciseKey={selectedExerciseKey}
+                currentDraft={currentDraft}
+                currentSubmission={currentSubmission}
+                exerciseSubmissions={exerciseSubmissions}
+                artifactLoading={artifactLoading}
+                exerciseReviewLoading={exerciseReviewLoading}
+                normalizeText={normalizeText}
+                simplifySectionHeading={simplifySectionHeading}
+                formatSessionTime={formatSessionTime}
+                renderArtifactSection={(section, sectionIndex, keyPrefix) => (
+                  <ArtifactSectionContent section={section} sectionIndex={sectionIndex} keyPrefix={keyPrefix} />
+                )}
+                onSelectPractice={setSelectedPracticeIndex}
+                onGeneratePractice={() => void handleArtifact('summary')}
+                onDraftChange={(exerciseKey, value) =>
+                  setExerciseDrafts((current) => ({
+                    ...current,
+                    [exerciseKey]: value,
+                  }))
+                }
+                onSubmitExercise={() => void handleSubmitExercise()}
+              />
             ) : null}
 
             {activeView === 'path' ? (
-              <section className="page panel">
-                <div className="panel-head">
-                  <div>
-                    <h2>{TEXT.path}</h2>
-                  </div>
-                  <Route size={18} />
-                </div>
-                {generation ? (
-                  <div className="result-stack">
-                    <section className="path-progress-panel">
-                      <div>
-                        <span>跟进进度</span>
-                        <strong>{`已掌握 ${completedPathCount} / 总计 ${pathSteps.length}`}</strong>
-                        <p>{pathUsesGeneratedContent ? '按“理论资料 -> 典例精讲 -> 自我练习 -> 反馈跟进”的顺序推进。' : '按当前学习方案推进，每一步都可以提交学习反馈。'}</p>
-                        <em className="collaboration-inline-note">路径已整合理论资料、典例、练习和反馈。</em>
-                      </div>
-                      <div className="path-progress-bar" aria-label="学习路径完成进度">
-                        <span style={{ width: `${pathCompletionPercent}%` }} />
-                      </div>
-                    </section>
-                    <section className="path-phase-panel" aria-label="学习路径阶段">
-                      <div>
-                        <span>1</span>
-                        <strong>先学理论</strong>
-                        <p>{onlineResourcesLoading ? '正在匹配资料' : onlineResources.length > 0 ? `已匹配 ${onlineResources.length} 条资料` : '待匹配资料'}</p>
-                      </div>
-                      <div>
-                        <span>2</span>
-                        <strong>再看典例</strong>
-                        <p>{scriptSections.length > 0 ? `${scriptSections.length} 个典例` : '待生成典例'}</p>
-                      </div>
-                      <div>
-                        <span>3</span>
-                        <strong>最后练习</strong>
-                        <p>{exerciseSections.length > 0 ? `${exerciseSections.length} 道练习` : '待生成练习'}</p>
-                      </div>
-                      <div>
-                        <span>4</span>
-                        <strong>反馈跟进</strong>
-                        <p>{assessedPathCount > 0 ? `已跟进 ${assessedPathCount} 步` : '待提交反馈'}</p>
-                      </div>
-                    </section>
-                    {pathMermaidChart ? (
-                      <details className="path-map-panel path-map-details">
-                        <summary className="section-title">
-                          <Route size={16} />
-                          查看路线图
-                        </summary>
-                        <div className="path-map-toolbar" aria-label="路线图缩放">
-                          <button
-                            type="button"
-                            onClick={() => setPathMapZoom((value) => Math.max(0.6, Number((value - 0.15).toFixed(2))))}
-                            disabled={pathMapZoom <= 0.6}
-                            aria-label="缩小路线图"
-                          >
-                            <ZoomOut size={15} />
-                          </button>
-                          <span>{`${Math.round(pathMapZoom * 100)}%`}</span>
-                          <button
-                            type="button"
-                            onClick={() => setPathMapZoom((value) => Math.min(2.2, Number((value + 0.15).toFixed(2))))}
-                            disabled={pathMapZoom >= 2.2}
-                            aria-label="放大路线图"
-                          >
-                            <ZoomIn size={15} />
-                          </button>
-                          <button type="button" onClick={() => setPathMapZoom(1)} aria-label="重置路线图缩放">
-                            <RefreshCw size={14} />
-                            重置
-                          </button>
-                        </div>
-                        <div className="path-map-viewport">
-                          <div className="path-map-zoom-space" style={{ width: `${pathMapZoom * 100}%`, minHeight: `${pathMapZoom * 520}px` }}>
-                            <div className="path-map-zoom-layer" style={{ transform: `scale(${pathMapZoom})` }}>
-                              <MermaidDiagram chart={pathMermaidChart} />
-                            </div>
-                          </div>
-                        </div>
-                      </details>
-                    ) : null}
-                    <div className="path-list">
-                      {pathSteps.map((step, index) => {
-                        const completed = effectivePathProgress[String(index)] === true
-                        const assessment = pathAssessments[String(index)]
-                        const feedbackDraft = pathFeedbackDrafts[String(index)] ?? assessment?.feedback ?? ''
-                        const masteryLabel =
-                          assessment?.assessment.mastery === 'good'
-                            ? '掌握较好'
-                            : assessment?.assessment.mastery === 'needs_help'
-                              ? '还需补强'
-                              : '部分掌握'
-                        const followStatus = assessment
-                          ? masteryLabel
-                          : feedbackDraft.trim()
-                            ? '待评估'
-                            : '待跟进'
-                        const pathCardClass = [
-                          'path-card',
-                          completed ? 'completed' : '',
-                          assessment ? `mastery-${assessment.assessment.mastery}` : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' ')
-                        const theoryResources = getPathTheoryResources(onlineResources, index)
-                        const exampleSection = scriptSections[index]
-                        const exerciseSection = exerciseSections[index]
-                        const exampleTitle = exampleSection ? simplifySectionHeading(exampleSection.heading, `典例 ${index + 1}`) : ''
-                        const exerciseTitle = exerciseSection ? simplifySectionHeading(exerciseSection.heading, `练习 ${index + 1}`) : ''
-                        return (
-                        <article className={pathCardClass} key={`${step.title}-${index}`}>
-                          <div className="path-head">
-                            <div className="path-title-group">
-                              <div className="path-index">{index + 1}</div>
-                              <strong>{normalizeText(step.title, '\u5b66\u4e60\u6b65\u9aa4')}</strong>
-                            </div>
-                            <div className="path-head-meta">
-                              <span className="path-status-pill">{followStatus}</span>
-                              <div className="path-duration">
-                                <Clock size={15} />
-                                <span>{normalizeText(step.duration, '\u5efa\u8bae\u65f6\u957f\u5f85\u751f\u6210')}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="path-learning-loop">
-                            <section className="path-loop-section">
-                              <div className="path-loop-head">
-                                <span>先学理论</span>
-                                <strong>补齐概念和知识点</strong>
-                              </div>
-                              {theoryResources.length > 0 ? (
-                                <div className="path-resource-list">
-                                  {theoryResources.slice(0, 2).map((resource) => {
-                                    const provider = normalizeText(resource.provider, '学习资料')
-                                    const title = normalizeText(resource.title, '外部学习资料')
-                                    const summary = normalizeText(resource.summary, '先通过这份资料补齐相关概念。')
-                                    const iconUrl = getResourceIconUrl(resource.url)
-                                    const matchLabels = (resource.match_labels ?? []).map((label) => normalizeTagLabel(label)).filter(Boolean)
-                                    return (
-                                      <a className="path-resource-card" href={resource.url} target="_blank" rel="noreferrer" key={`${index}-${resource.id}`}>
-                                        <div className="resource-icon resource-site-icon">
-                                          {iconUrl ? (
-                                            <img
-                                              src={iconUrl}
-                                              alt=""
-                                              loading="lazy"
-                                              referrerPolicy="no-referrer"
-                                              onError={(event) => {
-                                                event.currentTarget.style.display = 'none'
-                                              }}
-                                            />
-                                          ) : (
-                                            <Globe size={15} />
-                                          )}
-                                        </div>
-                                        <div>
-                                          <span>{`${provider} · ${getResourceKindLabel(resource.kind)}`}</span>
-                                          <strong>{title}</strong>
-                                          <p>{summary}</p>
-                                          {matchLabels.length > 0 ? (
-                                            <div className="match-tags compact-tags">
-                                              {matchLabels.slice(0, 2).map((label) => (
-                                                <span className="match-tag" key={`${resource.id}-${label}`}>{label}</span>
-                                              ))}
-                                            </div>
-                                          ) : null}
-                                        </div>
-                                      </a>
-                                    )
-                                  })}
-                                </div>
-                              ) : (
-                                <div className="path-loop-empty">
-                                  <p>{onlineResourcesLoading ? '正在按当前薄弱点匹配理论资料。' : '还没有匹配到理论资料，可以先更新外部资料。'}</p>
-                                  <button className="path-inline-button" type="button" onClick={() => void handleLoadOnlineResources()} disabled={onlineResourcesLoading}>
-                                    <Globe size={15} />
-                                    {onlineResourcesLoading ? '匹配中...' : '更新外部资料'}
-                                  </button>
-                                </div>
-                              )}
-                            </section>
-                            <section className="path-loop-section">
-                              <div className="path-loop-head">
-                                <span>再看典例</span>
-                                <strong>{exampleTitle || '暂未生成典例'}</strong>
-                              </div>
-                              <p>{exampleTitle ? `先看《${exampleTitle}》的题目拆解、关键代码和易错点。` : '生成典例精讲后，这里会关联对应的讲解。'}</p>
-                              {exampleSection ? (
-                                <button className="path-inline-button" type="button" onClick={() => {
-                                  setSelectedExampleIndex(index)
-                                  setActiveView('examples')
-                                }}>
-                                  <MessageSquareText size={15} />
-                                  打开典例
-                                </button>
-                              ) : null}
-                            </section>
-                            <section className="path-loop-section">
-                              <div className="path-loop-head">
-                                <span>最后练习</span>
-                                <strong>{exerciseTitle || '暂未生成练习'}</strong>
-                              </div>
-                              <p>{exerciseTitle ? `完成《${exerciseTitle}》，写代码并提交点评。` : '生成自我练习后，这里会关联对应题目。'}</p>
-                              {exerciseSection ? (
-                                <button className="path-inline-button" type="button" onClick={() => {
-                                  setSelectedPracticeIndex(index)
-                                  setActiveView('practice')
-                                }}>
-                                  <ClipboardCheck size={15} />
-                                  去做练习
-                                </button>
-                              ) : null}
-                            </section>
-                          </div>
-                          <div className="path-outcome-block">
-                            <span>完成标准</span>
-                            <em>{normalizeText(step.expected_outcome, '\u5b8c\u6210\u540e\u4f60\u4f1a\u66f4\u6e05\u695a\u4e0b\u4e00\u6b65\u600e\u4e48\u5b66\u3002')}</em>
-                          </div>
-                          <div className="path-assessment-panel">
-                            <label>
-                              <span>学习反馈</span>
-                              <textarea
-                                value={feedbackDraft}
-                                onChange={(event) =>
-                                  setPathFeedbackDrafts((current) => ({
-                                    ...current,
-                                    [String(index)]: event.target.value,
-                                  }))
-                                }
-                                placeholder="比如：这一步能看懂，但 append 和 extend 还是容易混。也可以写你完成了哪道题、哪里卡住。"
-                                rows={3}
-                              />
-                            </label>
-                            <div className="path-card-actions">
-                              <button className="path-assess-button" type="button" onClick={() => void handleSubmitPathAssessment(index)} disabled={pathAssessmentLoading !== null}>
-                                <Sparkles size={15} />
-                                {pathAssessmentLoading === index ? '分析中...' : assessment ? '更新跟进' : '提交跟进'}
-                              </button>
-                            </div>
-                            {assessment ? (
-                              <div className={`path-assessment-result ${assessment.assessment.mastery}`}>
-                                <div className="path-assessment-head">
-                                  <span>{masteryLabel}</span>
-                                  <em>{formatSessionTime(assessment.updated_at)}</em>
-                                </div>
-                                <p>{normalizeText(assessment.assessment.summary, '已根据你的反馈更新这一阶段的学习评估。')}</p>
-                                {assessment.assessment.issues.length > 0 ? (
-                                  <ul>
-                                    {assessment.assessment.issues.map((item) => (
-                                      <li key={item}>{normalizeText(item, '待补充')}</li>
-                                    ))}
-                                  </ul>
-                                ) : null}
-                                <strong>{normalizeText(assessment.assessment.next_advice, '继续按学习路径进入下一步。')}</strong>
-                              </div>
-                            ) : null}
-                          </div>
-                        </article>
-                        )
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="empty-state">{TEXT.emptyPath}</div>
-                )}
-              </section>
+              <PathPanel
+                labels={{ path: TEXT.path, emptyPath: TEXT.emptyPath }}
+                generation={generation}
+                pathSteps={pathSteps}
+                pathUsesGeneratedContent={pathUsesGeneratedContent}
+                completedPathCount={completedPathCount}
+                assessedPathCount={assessedPathCount}
+                pathCompletionPercent={pathCompletionPercent}
+                pathMermaidChart={pathMermaidChart}
+                pathMapZoom={pathMapZoom}
+                effectivePathProgress={effectivePathProgress}
+                pathAssessments={pathAssessments}
+                pathFeedbackDrafts={pathFeedbackDrafts}
+                pathAssessmentLoading={pathAssessmentLoading}
+                onlineResources={onlineResources}
+                onlineResourcesLoading={onlineResourcesLoading}
+                scriptSections={scriptSections}
+                exerciseSections={exerciseSections}
+                normalizeText={normalizeText}
+                normalizeTagLabel={normalizeTagLabel}
+                simplifySectionHeading={simplifySectionHeading}
+                getPathTheoryResources={getPathTheoryResources}
+                getResourceIconUrl={getResourceIconUrl}
+                getResourceKindLabel={getResourceKindLabel}
+                formatSessionTime={formatSessionTime}
+                onZoomOut={() => setPathMapZoom((value) => Math.max(0.6, Number((value - 0.15).toFixed(2))))}
+                onZoomIn={() => setPathMapZoom((value) => Math.min(2.2, Number((value + 0.15).toFixed(2))))}
+                onZoomReset={() => setPathMapZoom(1)}
+                onLoadOnlineResources={() => void handleLoadOnlineResources()}
+                onOpenExample={(index) => {
+                  setSelectedExampleIndex(index)
+                  setActiveView('examples')
+                }}
+                onOpenPractice={(index) => {
+                  setSelectedPracticeIndex(index)
+                  setActiveView('practice')
+                }}
+                onFeedbackChange={(stepIndex, value) => {
+                  setPathFeedbackDrafts((current) => ({
+                    ...current,
+                    [String(stepIndex)]: value,
+                  }))
+                }}
+                onSubmitAssessment={(index) => void handleSubmitPathAssessment(index)}
+              />
             ) : null}
           </section>
         </div>

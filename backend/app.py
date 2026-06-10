@@ -2,39 +2,36 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
 import uuid
-from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
 from backend.online_resources import TAG_CATALOG, recommend_online_resources, resolve_profile_recommendation_tags
-
-
-def load_local_env() -> None:
-    root = Path(__file__).resolve().parent.parent
-    for candidate in (root / ".env.local", root / ".env"):
-        if not candidate.exists():
-            continue
-        for raw_line in candidate.read_text(encoding="utf-8").splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip())
-
-
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-load_local_env()
+from backend.model_client import call_chat_json, embed_texts
+from backend.core import MATERIALS_DIR, SESSIONS_DIR, json_dumps, now_iso
+from backend.providers import CHAT_PROVIDER_OPTIONS, EMBEDDING_PROVIDER_OPTIONS, provider_base_url, provider_default_model
+from backend.schemas import (
+    AppSettingsUpdate,
+    ArtifactKind,
+    ArtifactRequest,
+    ChatMessageRequest,
+    ChatSessionRequest,
+    CourseId,
+    ExerciseReferenceRequest,
+    ExerciseReviewRequest,
+    GenerateRequest,
+    OnlineResourceRequest,
+    PathAssessmentRequest,
+    PathProgressRequest,
+    ProfileSummaryRequest,
+    RenameSessionRequest,
+)
+from backend.settings_store import Settings, get_settings, load_app_settings, save_app_settings, settings_payload
+from backend.session_store import delete_session_file, load_session, save_session, session_path
 
 app = FastAPI(title="A3 个性化学习助手", version="0.4.0")
 
@@ -49,24 +46,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = Path(os.getenv("A3_DATA_DIR", str(ROOT_DIR / "data"))).resolve()
-SESSIONS_DIR = DATA_DIR / "sessions"
-MATERIALS_DIR = DATA_DIR / "materials"
-APP_SETTINGS_PATH = DATA_DIR / "app_settings.json"
-SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
-MATERIALS_DIR.mkdir(parents=True, exist_ok=True)
-
-CourseId = Literal["python"]
-ProfileId = Literal["novice", "transfer", "competition"]
-FocusMode = Literal["讲解", "练习", "复习"]
-ArtifactKind = Literal["summary", "qa_script"]
-ChatProvider = Literal["deepseek", "qwen", "openai", "moonshot", "siliconflow", "custom"]
-EmbeddingProvider = Literal["dashscope", "openai", "siliconflow", "custom"]
-
-REQUEST_TIMEOUT = 60.0
 EMBEDDING_TOP_K = 5
-EMBEDDING_BATCH_SIZE = 10
 MAX_CHAT_HISTORY = 10
 MAX_DOC_CHARS = 900
 MAX_DOC_OVERLAP = 120
@@ -77,318 +57,6 @@ COLLABORATION_ROLES = {
     "path": "安排学习路径",
     "feedback": "跟进练习反馈",
 }
-
-CHAT_PROVIDER_OPTIONS = [
-    {
-        "id": "deepseek",
-        "label": "DeepSeek",
-        "base_url": "https://api.deepseek.com",
-        "models": ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner"],
-    },
-    {
-        "id": "qwen",
-        "label": "通义千问",
-        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "models": ["qwen3.7-max", "qwen3.7-plus", "qwen3.6-plus", "qwen3.6-flash", "qwen3-coder-plus"],
-    },
-    {
-        "id": "openai",
-        "label": "OpenAI",
-        "base_url": "https://api.openai.com/v1",
-        "models": ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-4.1-mini", "gpt-4.1"],
-    },
-    {
-        "id": "moonshot",
-        "label": "Kimi",
-        "base_url": "https://api.moonshot.cn/v1",
-        "models": ["kimi-k2.6", "kimi-k2.5", "moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k"],
-    },
-    {
-        "id": "siliconflow",
-        "label": "硅基流动",
-        "base_url": "https://api.siliconflow.cn/v1",
-        "models": ["deepseek-ai/DeepSeek-V3.2-Exp", "deepseek-ai/DeepSeek-V3.1", "Qwen/Qwen3-235B-A22B-Instruct-2507"],
-    },
-]
-
-EMBEDDING_PROVIDER_OPTIONS = [
-    {
-        "id": "dashscope",
-        "label": "千问向量",
-        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "models": ["text-embedding-v4", "text-embedding-v3", "text-embedding-v2"],
-    },
-    {
-        "id": "openai",
-        "label": "OpenAI",
-        "base_url": "https://api.openai.com/v1",
-        "models": ["text-embedding-3-small", "text-embedding-3-large"],
-    },
-    {
-        "id": "siliconflow",
-        "label": "硅基流动",
-        "base_url": "https://api.siliconflow.cn/v1",
-        "models": ["BAAI/bge-m3", "netease-youdao/bce-embedding-base_v1", "BAAI/bge-large-zh-v1.5"],
-    },
-]
-
-
-CHAT_PROVIDER_OPTIONS = [
-    {
-        "id": "deepseek",
-        "label": "DeepSeek",
-        "base_url": "https://api.deepseek.com",
-        "models": ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner"],
-    },
-    {
-        "id": "qwen",
-        "label": "通义千问",
-        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "models": ["qwen3.7-max", "qwen3.7-plus", "qwen3.6-plus", "qwen3.6-flash", "qwen3-coder-plus"],
-    },
-    {
-        "id": "openai",
-        "label": "OpenAI",
-        "base_url": "https://api.openai.com/v1",
-        "models": ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-4.1-mini", "gpt-4.1"],
-    },
-    {
-        "id": "moonshot",
-        "label": "Kimi",
-        "base_url": "https://api.moonshot.cn/v1",
-        "models": ["kimi-k2.6", "kimi-k2.5", "moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k"],
-    },
-    {
-        "id": "siliconflow",
-        "label": "硅基流动",
-        "base_url": "https://api.siliconflow.cn/v1",
-        "models": ["deepseek-ai/DeepSeek-V3.2-Exp", "deepseek-ai/DeepSeek-V3.1", "Qwen/Qwen3-235B-A22B-Instruct-2507"],
-    },
-]
-
-EMBEDDING_PROVIDER_OPTIONS = [
-    {
-        "id": "dashscope",
-        "label": "千问向量",
-        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "models": ["text-embedding-v4", "text-embedding-v3", "text-embedding-v2"],
-    },
-    {
-        "id": "openai",
-        "label": "OpenAI",
-        "base_url": "https://api.openai.com/v1",
-        "models": ["text-embedding-3-small", "text-embedding-3-large"],
-    },
-    {
-        "id": "siliconflow",
-        "label": "硅基流动",
-        "base_url": "https://api.siliconflow.cn/v1",
-        "models": ["BAAI/bge-m3", "netease-youdao/bce-embedding-base_v1", "BAAI/bge-large-zh-v1.5"],
-    },
-]
-
-
-def provider_option(options: list[dict[str, Any]], provider_id: str) -> dict[str, Any]:
-    return next((item for item in options if item["id"] == provider_id), options[0])
-
-
-def provider_base_url(options: list[dict[str, Any]], provider_id: str) -> str:
-    return str(provider_option(options, provider_id)["base_url"])
-
-
-def provider_default_model(options: list[dict[str, Any]], provider_id: str) -> str:
-    models = provider_option(options, provider_id).get("models", [])
-    return str(models[0]) if models else ""
-
-
-PROVIDER_LABELS = {
-    "deepseek": "DeepSeek",
-    "qwen": "\u901a\u4e49\u5343\u95ee",
-    "openai": "OpenAI",
-    "moonshot": "Kimi",
-    "siliconflow": "\u7845\u57fa\u6d41\u52a8",
-    "dashscope": "\u5343\u95ee\u5411\u91cf",
-    "custom": "\u81ea\u5b9a\u4e49\u63a5\u53e3",
-}
-
-
-def public_provider_options(options: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    public_options = [{**item, "label": PROVIDER_LABELS.get(str(item.get("id", "")), str(item.get("label", "")))} for item in options]
-    if not any(item.get("id") == "custom" for item in public_options):
-        public_options.append({"id": "custom", "label": PROVIDER_LABELS["custom"], "base_url": "", "models": []})
-    return public_options
-
-
-class ChatSessionRequest(BaseModel):
-    course_id: CourseId = "python"
-
-
-class RenameSessionRequest(BaseModel):
-    title: str = Field(min_length=1, max_length=40)
-
-
-class ChatMessageRequest(BaseModel):
-    session_id: str
-    message: str = Field(min_length=1, max_length=1500)
-
-
-class ProfileSummaryRequest(BaseModel):
-    session_id: str
-
-
-class GenerateRequest(BaseModel):
-    session_id: str | None = None
-    course_id: CourseId = "python"
-    profile_id: ProfileId | None = None
-    focus: FocusMode = "讲解"
-    depth: int = Field(default=2, ge=1, le=3)
-    version: int = Field(default=1, ge=1)
-
-
-class ArtifactRequest(BaseModel):
-    session_id: str | None = None
-    course_id: CourseId = "python"
-    profile_id: ProfileId | None = None
-    focus: FocusMode = "讲解"
-    depth: int = Field(default=2, ge=1, le=3)
-    artifact: ArtifactKind = "summary"
-    variant: int = Field(default=1, ge=1)
-
-
-class OnlineResourceRequest(BaseModel):
-    session_id: str | None = None
-    course_id: CourseId = "python"
-    focus: FocusMode = "讲解"
-    query: str = Field(default="", max_length=120)
-
-
-class PathProgressRequest(BaseModel):
-    session_id: str
-    step_index: int = Field(ge=0)
-    completed: bool
-
-
-class PathAssessmentRequest(BaseModel):
-    session_id: str
-    step_index: int = Field(ge=0)
-    feedback: str = Field(min_length=1, max_length=1200)
-
-
-class ExerciseReviewRequest(BaseModel):
-    session_id: str
-    exercise_index: int = Field(ge=0)
-    exercise_heading: str = Field(min_length=1, max_length=120)
-    prompt_lines: list[str] = Field(min_length=1, max_length=12)
-    user_code: str = Field(min_length=1, max_length=12000)
-
-
-class ExerciseReferenceRequest(BaseModel):
-    session_id: str
-    exercise_index: int = Field(ge=0)
-    reference_open: bool
-
-
-class AppSettingsUpdate(BaseModel):
-    chat_provider: ChatProvider | None = None
-    embedding_provider: EmbeddingProvider | None = None
-    deepseek_api_key: str | None = Field(default=None, max_length=300)
-    deepseek_base_url: str | None = Field(default=None, max_length=200)
-    deepseek_chat_model: str | None = Field(default=None, max_length=80)
-    dashscope_api_key: str | None = Field(default=None, max_length=300)
-    dashscope_base_url: str | None = Field(default=None, max_length=200)
-    dashscope_embedding_model: str | None = Field(default=None, max_length=80)
-
-
-class Settings(BaseModel):
-    chat_provider: ChatProvider = "deepseek"
-    embedding_provider: EmbeddingProvider = "dashscope"
-    deepseek_api_key: str = ""
-    deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_chat_model: str = "deepseek-v4-pro"
-    dashscope_api_key: str = ""
-    dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    dashscope_embedding_model: str = "text-embedding-v4"
-
-    @property
-    def chat_configured(self) -> bool:
-        return bool(self.deepseek_api_key and self.deepseek_chat_model and self.deepseek_base_url)
-
-    @property
-    def embedding_configured(self) -> bool:
-        return bool(self.dashscope_api_key and self.dashscope_embedding_model and self.dashscope_base_url)
-
-    @property
-    def llm_configured(self) -> bool:
-        return self.chat_configured and self.embedding_configured
-
-
-def load_app_settings() -> dict[str, Any]:
-    if not APP_SETTINGS_PATH.exists():
-        return {}
-    try:
-        payload = json.loads(APP_SETTINGS_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def save_app_settings(payload: dict[str, Any]) -> None:
-    APP_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    APP_SETTINGS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def get_settings() -> Settings:
-    file_settings = load_app_settings()
-    settings = Settings(
-        chat_provider=os.getenv("CHAT_PROVIDER", "deepseek").strip() or "deepseek",
-        embedding_provider=os.getenv("EMBEDDING_PROVIDER", "dashscope").strip() or "dashscope",
-        deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", "").strip(),
-        deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip(),
-        deepseek_chat_model=os.getenv("DEEPSEEK_CHAT_MODEL", "deepseek-v4-pro").strip(),
-        dashscope_api_key=os.getenv("DASHSCOPE_API_KEY", "").strip(),
-        dashscope_base_url=os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1").strip(),
-        dashscope_embedding_model=os.getenv("DASHSCOPE_EMBEDDING_MODEL", "text-embedding-v4").strip(),
-    )
-    for key in Settings.model_fields:
-        value = file_settings.get(key)
-        if isinstance(value, str):
-            setattr(settings, key, value.strip())
-    if settings.chat_provider != "custom":
-        settings.deepseek_base_url = provider_base_url(CHAT_PROVIDER_OPTIONS, settings.chat_provider)
-    if settings.embedding_provider != "custom":
-        settings.dashscope_base_url = provider_base_url(EMBEDDING_PROVIDER_OPTIONS, settings.embedding_provider)
-    if not settings.deepseek_chat_model and settings.chat_provider != "custom":
-        settings.deepseek_chat_model = provider_default_model(CHAT_PROVIDER_OPTIONS, settings.chat_provider)
-    if not settings.dashscope_embedding_model and settings.embedding_provider != "custom":
-        settings.dashscope_embedding_model = provider_default_model(EMBEDDING_PROVIDER_OPTIONS, settings.embedding_provider)
-    return settings
-
-
-def mask_secret(value: str) -> str:
-    if not value:
-        return ""
-    if len(value) <= 10:
-        return "*" * len(value)
-    return f"{value[:4]}...{value[-4:]}"
-
-
-def settings_payload(settings: Settings) -> dict[str, Any]:
-    return {
-        "chat_configured": settings.chat_configured,
-        "embedding_configured": settings.embedding_configured,
-        "llm_configured": settings.llm_configured,
-        "chat_provider": settings.chat_provider,
-        "embedding_provider": settings.embedding_provider,
-        "deepseek_api_key_masked": mask_secret(settings.deepseek_api_key),
-        "dashscope_api_key_masked": mask_secret(settings.dashscope_api_key),
-        "deepseek_base_url": settings.deepseek_base_url,
-        "deepseek_chat_model": settings.deepseek_chat_model,
-        "dashscope_base_url": settings.dashscope_base_url,
-        "dashscope_embedding_model": settings.dashscope_embedding_model,
-        "chat_provider_options": public_provider_options(CHAT_PROVIDER_OPTIONS),
-        "embedding_provider_options": public_provider_options(EMBEDDING_PROVIDER_OPTIONS),
-    }
-
 
 COURSES: dict[str, dict[str, Any]] = {
     "python": {
@@ -484,13 +152,11 @@ SYSTEM_PROMPTS = {
     ),
 }
 
-
 def resolve_course(course_id: str) -> dict[str, Any]:
     course = COURSES.get(course_id)
     if not course:
         raise HTTPException(status_code=404, detail="course not found")
     return course
-
 
 def resolve_profile(profile_id: str) -> dict[str, Any]:
     profile = PROFILES.get(profile_id)
@@ -498,54 +164,15 @@ def resolve_profile(profile_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="profile not found")
     return profile
 
-
 def ensure_llm_configured() -> Settings:
     settings = get_settings()
     if not settings.llm_configured:
         raise HTTPException(status_code=501, detail="尚未完成 DeepSeek 与 DashScope 的 API 配置。")
     return settings
 
-
-def json_dumps(data: Any) -> str:
-    return json.dumps(data, ensure_ascii=False, indent=2)
-
-
-def parse_model_json(content: str) -> Any:
-    cleaned = content.strip().lstrip("\ufeff")
-    if cleaned.startswith("```"):
-        parts = [segment for segment in cleaned.split("```") if segment.strip()]
-        if parts:
-            cleaned = parts[0]
-            if cleaned.startswith("json"):
-                cleaned = cleaned[4:].strip()
-    if not cleaned.startswith("{"):
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            cleaned = cleaned[start : end + 1]
-    return json.loads(cleaned)
-
-
-def session_path(session_id: str) -> Path:
-    return SESSIONS_DIR / f"{session_id}.json"
-
-
-def save_session(payload: dict[str, Any]) -> None:
-    payload["updated_at"] = now_iso()
-    session_path(payload["session_id"]).write_text(json_dumps(payload), encoding="utf-8")
-
-
-def load_session(session_id: str) -> dict[str, Any]:
-    path = session_path(session_id)
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="session not found")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def get_collaboration_trace(session: dict[str, Any]) -> list[dict[str, Any]]:
     trace = session.get("collaboration_trace")
     return trace if isinstance(trace, list) else []
-
 
 def collaboration_record(
     role: str,
@@ -563,7 +190,6 @@ def collaboration_record(
         "used_sources": used_sources or [],
         "updated_at": now_iso(),
     }
-
 
 def merge_collaboration_trace(
     session: dict[str, Any],
@@ -589,7 +215,6 @@ def merge_collaboration_trace(
     merged.sort(key=lambda item: (role_order.get(str(item.get("role", "")), 99), str(item.get("updated_at", ""))))
     session["collaboration_trace"] = merged
     return merged
-
 
 def create_session_payload(course_id: str) -> dict[str, Any]:
     course = resolve_course(course_id)
@@ -622,13 +247,11 @@ def create_session_payload(course_id: str) -> dict[str, Any]:
     save_session(payload)
     return payload
 
-
 def truncate_text(text: str, limit: int = 42) -> str:
     stripped = " ".join(text.split())
     if len(stripped) <= limit:
         return stripped
     return stripped[: limit - 1] + "…"
-
 
 def refresh_session_metadata(session: dict[str, Any]) -> None:
     course = resolve_course(session["course_id"])
@@ -639,7 +262,6 @@ def refresh_session_metadata(session: dict[str, Any]) -> None:
     else:
         session["title"] = truncate_text(user_messages[0], 20) if user_messages else "新的聊天"
     session["preview"] = truncate_text(latest_message, 56)
-
 
 def build_session_summary(session: dict[str, Any]) -> dict[str, Any]:
     return {
@@ -654,10 +276,8 @@ def build_session_summary(session: dict[str, Any]) -> dict[str, Any]:
         "has_generation": session.get("latest_generation") is not None,
     }
 
-
 def session_has_user_messages(session: dict[str, Any]) -> bool:
     return any(item.get("role") == "user" and item.get("content", "").strip() for item in session.get("messages", []))
-
 
 def is_trivial_session(session: dict[str, Any]) -> bool:
     latest_artifacts = session.get("latest_artifacts") or {}
@@ -677,7 +297,6 @@ def is_trivial_session(session: dict[str, Any]) -> bool:
         and not session.get("custom_title")
     )
 
-
 def get_session_artifacts(session: dict[str, Any]) -> dict[str, Any]:
     artifacts: dict[str, Any] = {}
 
@@ -691,13 +310,11 @@ def get_session_artifacts(session: dict[str, Any]) -> dict[str, Any]:
 
     return artifacts
 
-
 def get_session_exercise_submissions(session: dict[str, Any]) -> dict[str, Any]:
     submissions = session.get("exercise_submissions")
     if isinstance(submissions, dict):
         return submissions
     return {}
-
 
 def append_artifact_sections(existing: Any, incoming: dict[str, Any], artifact: ArtifactKind) -> dict[str, Any]:
     if not isinstance(existing, dict):
@@ -725,13 +342,11 @@ def append_artifact_sections(existing: Any, incoming: dict[str, Any], artifact: 
         "sections": [*existing_sections, *incoming_sections],
     }
 
-
 def get_session_path_progress(session: dict[str, Any]) -> dict[str, bool]:
     progress = session.get("path_progress")
     if isinstance(progress, dict):
         return {str(key): bool(value) for key, value in progress.items()}
     return {}
-
 
 def get_session_path_assessments(session: dict[str, Any]) -> dict[str, Any]:
     assessments = session.get("path_assessments")
@@ -739,13 +354,11 @@ def get_session_path_assessments(session: dict[str, Any]) -> dict[str, Any]:
         return {str(key): value for key, value in assessments.items() if isinstance(value, dict)}
     return {}
 
-
 def simplify_artifact_heading(heading: str, fallback: str) -> str:
     text = str(heading or "").strip() or fallback
     text = re.sub(r"^(练习|典例|典例精讲|缁冧範|鍏镐緥绮捐)\s*\d+\s*[：:锛?]\s*", "", text)
     text = re.sub(r"^(练习|典例|典例精讲|缁冧範|鍏镐緥绮捐)\s*", "", text)
     return text.strip() or fallback
-
 
 def build_current_path_steps(session: dict[str, Any]) -> list[dict[str, Any]]:
     artifacts = get_session_artifacts(session)
@@ -788,13 +401,11 @@ def build_current_path_steps(session: dict[str, Any]) -> list[dict[str, Any]]:
     path_steps = latest_generation.get("path", []) if isinstance(latest_generation, dict) else []
     return path_steps if isinstance(path_steps, list) else []
 
-
 def get_session_online_resources(session: dict[str, Any]) -> list[dict[str, Any]]:
     resources = session.get("online_resources")
     if isinstance(resources, list):
         return [item for item in resources if isinstance(item, dict)]
     return []
-
 
 def get_session_generation_history(session: dict[str, Any]) -> list[dict[str, Any]]:
     records = session.get("generation_history")
@@ -802,12 +413,10 @@ def get_session_generation_history(session: dict[str, Any]) -> list[dict[str, An
         return [item for item in records if isinstance(item, dict)]
     return []
 
-
 def prepend_session_generation_history(session: dict[str, Any], record: dict[str, Any]) -> list[dict[str, Any]]:
     history = [record, *get_session_generation_history(session)]
     session["generation_history"] = history[:8]
     return session["generation_history"]
-
 
 def normalize_artifact_topic(text: str) -> str:
     normalized = str(text or "").strip().lower()
@@ -817,7 +426,6 @@ def normalize_artifact_topic(text: str) -> str:
     normalized = re.sub(r"^(练习|典例精讲|参考讲解|问题|题目)\s*", "", normalized)
     normalized = re.sub(r"\s+", "", normalized)
     return normalized
-
 
 def extract_artifact_topic(section: dict[str, Any] | None) -> str:
     if not isinstance(section, dict):
@@ -834,14 +442,12 @@ def extract_artifact_topic(section: dict[str, Any] | None) -> str:
             return topic
     return ""
 
-
 def topics_look_related(left: str, right: str) -> bool:
     if not left or not right:
         return False
     if left in right or right in left:
         return True
     return SequenceMatcher(None, left, right).ratio() >= 0.45
-
 
 def qa_script_matches_summary(summary_artifact: Any, qa_script_artifact: Any) -> bool:
     if not isinstance(summary_artifact, dict) or not isinstance(qa_script_artifact, dict):
@@ -860,7 +466,6 @@ def qa_script_matches_summary(summary_artifact: Any, qa_script_artifact: Any) ->
 
     return True
 
-
 def sanitize_artifact_state_for_response(
     latest_artifacts: dict[str, Any],
     exercise_submissions: dict[str, Any],
@@ -872,7 +477,6 @@ def sanitize_artifact_state_for_response(
     }
 
     return sanitized_artifacts, sanitized_submissions
-
 
 def normalize_submitted_code(raw_code: str) -> str:
     cleaned = raw_code.replace("\r\n", "\n").strip()
@@ -886,7 +490,6 @@ def normalize_submitted_code(raw_code: str) -> str:
         lines = lines[:-1]
     return "\n".join(lines).strip()
 
-
 def is_comment_only_code(code: str) -> bool:
     meaningful_lines = []
     for line in code.splitlines():
@@ -895,7 +498,6 @@ def is_comment_only_code(code: str) -> bool:
             continue
         meaningful_lines.append(stripped)
     return len(meaningful_lines) == 0
-
 
 def is_obviously_non_python_code(code: str) -> bool:
     lowered = code.lower()
@@ -911,7 +513,6 @@ def is_obviously_non_python_code(code: str) -> bool:
         "document.getelementbyid",
     ]
     return any(marker in lowered for marker in invalid_markers)
-
 
 def cleanup_session_files() -> None:
     parsed_sessions: list[tuple[Path, dict[str, Any]]] = []
@@ -945,7 +546,6 @@ def cleanup_session_files() -> None:
 
         newest_trivial_by_course[course_id] = (path, session)
 
-
 def find_reusable_session(course_id: str) -> dict[str, Any] | None:
     cleanup_session_files()
     reusable: dict[str, Any] | None = None
@@ -969,7 +569,6 @@ def find_reusable_session(course_id: str) -> dict[str, Any] | None:
         refresh_session_metadata(reusable)
     return reusable
 
-
 def list_sessions() -> list[dict[str, Any]]:
     cleanup_session_files()
     sessions: list[dict[str, Any]] = []
@@ -985,99 +584,17 @@ def list_sessions() -> list[dict[str, Any]]:
     sessions.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
     return sessions
 
-
-def delete_session_file(session_id: str) -> None:
-    path = session_path(session_id)
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="session not found")
-    path.unlink()
-
-
 def dot_product(a: list[float], b: list[float]) -> float:
     return sum(x * y for x, y in zip(a, b))
 
-
 def norm(vector: list[float]) -> float:
     return math.sqrt(sum(x * x for x in vector))
-
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
     denominator = norm(a) * norm(b)
     if denominator == 0:
         return 0.0
     return dot_product(a, b) / denominator
-
-
-def call_chat_json(settings: Settings, system_prompt: str, user_prompt: str) -> Any:
-    last_json_error: json.JSONDecodeError | None = None
-    prompt_attempts = [
-        user_prompt,
-        f"{user_prompt}\n\n补充要求：只返回一个 JSON 对象，不要返回任何额外说明。",
-    ]
-    temperatures = [0.45, 0.15]
-
-    try:
-        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
-            for prompt, temperature in zip(prompt_attempts, temperatures):
-                response = client.post(
-                    f"{settings.deepseek_base_url.rstrip('/')}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {settings.deepseek_api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": settings.deepseek_chat_model,
-                        "temperature": temperature,
-                        "response_format": {"type": "json_object"},
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": prompt},
-                        ],
-                    },
-                )
-                response.raise_for_status()
-                payload = response.json()
-                content = payload["choices"][0]["message"]["content"]
-                try:
-                    return parse_model_json(content)
-                except json.JSONDecodeError as exc:
-                    last_json_error = exc
-                    continue
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=502, detail=f"DeepSeek API 调用失败：{exc.response.text}") from exc
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"DeepSeek API 网络错误：{exc}") from exc
-
-    raise HTTPException(status_code=502, detail=f"模型输出不是合法 JSON：{last_json_error}")
-
-
-def embed_texts(settings: Settings, texts: list[str]) -> list[list[float]]:
-    embeddings: list[list[float]] = []
-    try:
-        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
-            for start in range(0, len(texts), EMBEDDING_BATCH_SIZE):
-                batch = texts[start : start + EMBEDDING_BATCH_SIZE]
-                response = client.post(
-                    f"{settings.dashscope_base_url.rstrip('/')}/embeddings",
-                    headers={
-                        "Authorization": f"Bearer {settings.dashscope_api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": settings.dashscope_embedding_model,
-                        "input": batch,
-                        "encoding_format": "float",
-                    },
-                )
-                response.raise_for_status()
-                payload = response.json()
-                embeddings.extend(item["embedding"] for item in payload.get("data", []))
-        return embeddings
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=502, detail=f"Embedding API 调用失败：{exc.response.text}") from exc
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Embedding API 网络错误：{exc}") from exc
-
 
 def online_resource_vector_text(resource: dict[str, Any]) -> str:
     parts = [
@@ -1090,7 +607,6 @@ def online_resource_vector_text(resource: dict[str, Any]) -> str:
         " ".join(str(item) for item in resource.get("format_tags", []) or []),
     ]
     return " ".join(str(part).strip() for part in parts if str(part).strip())[:1200]
-
 
 def online_resource_query_text(profile: dict[str, Any], focus: str, query: str) -> str:
     dimensions = profile.get("dimensions", {}) if isinstance(profile.get("dimensions"), dict) else {}
@@ -1105,7 +621,6 @@ def online_resource_query_text(profile: dict[str, Any], focus: str, query: str) 
         " ".join(str(item) for item in profile.get("preferred_format_tags", []) or []),
     ]
     return " ".join(str(part).strip() for part in parts if str(part).strip())[:1500]
-
 
 def rerank_online_resources_by_embedding(
     settings: Settings,
@@ -1140,7 +655,6 @@ def rerank_online_resources_by_embedding(
     scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
     return [item for _, _, item in scored[:limit]]
 
-
 def normalize_profile_payload(profile: dict[str, Any]) -> dict[str, Any]:
     dimensions = profile.get("dimensions", {})
     return {
@@ -1154,7 +668,6 @@ def normalize_profile_payload(profile: dict[str, Any]) -> dict[str, Any]:
             "evaluation": dimensions.get("evaluation", ""),
         },
     }
-
 
 def build_course_documents(course: dict[str, Any], profile: dict[str, Any]) -> list[dict[str, str]]:
     dimensions = profile["dimensions"]
@@ -1194,7 +707,6 @@ def build_course_documents(course: dict[str, Any], profile: dict[str, Any]) -> l
         )
     return documents
 
-
 def split_text_for_indexing(text: str) -> list[str]:
     stripped = text.replace("\r\n", "\n").strip()
     if not stripped:
@@ -1231,7 +743,6 @@ def split_text_for_indexing(text: str) -> list[str]:
             start = max(0, end - MAX_DOC_OVERLAP)
     return chunks
 
-
 def load_material_documents(course_id: str) -> list[dict[str, str]]:
     course_dir = MATERIALS_DIR / course_id
     if not course_dir.exists():
@@ -1251,7 +762,6 @@ def load_material_documents(course_id: str) -> list[dict[str, str]]:
                 }
             )
     return documents
-
 
 def retrieve_context(
     settings: Settings,
@@ -1287,7 +797,6 @@ def retrieve_context(
     top_docs = scored[:EMBEDDING_TOP_K]
     return top_docs, [item["title"] for item in top_docs], using_materials
 
-
 def profile_from_session(session: dict[str, Any], summary_payload: dict[str, Any]) -> dict[str, Any]:
     dimensions = summary_payload.get("dimensions", {})
     profile = {
@@ -1306,7 +815,6 @@ def profile_from_session(session: dict[str, Any], summary_payload: dict[str, Any
     }
     profile.update(resolve_profile_recommendation_tags(profile, profile.get("next_focus", ""), ""))
     return profile
-
 
 def build_generation_collaboration_records(
     course: dict[str, Any],
@@ -1353,7 +861,6 @@ def build_generation_collaboration_records(
         ),
     ]
 
-
 def build_artifact_collaboration_record(artifact: ArtifactKind, payload: dict[str, Any]) -> dict[str, Any]:
     sections = payload.get("sections", []) if isinstance(payload.get("sections"), list) else []
     label = "自我练习" if artifact == "summary" else "典例精讲"
@@ -1365,7 +872,6 @@ def build_artifact_collaboration_record(artifact: ArtifactKind, payload: dict[st
         [label],
     )
 
-
 def build_review_collaboration_record(request: ExerciseReviewRequest, review: dict[str, Any]) -> dict[str, Any]:
     return collaboration_record(
         "feedback",
@@ -1374,7 +880,6 @@ def build_review_collaboration_record(request: ExerciseReviewRequest, review: di
         str(review.get("summary", "")).strip() or "已完成本次作答点评。",
         [request.exercise_heading.strip() or f"练习 {request.exercise_index + 1}", "你的练习答案"],
     )
-
 
 def ensure_session_collaboration_trace(session: dict[str, Any]) -> list[dict[str, Any]]:
     trace = get_collaboration_trace(session)
@@ -1422,7 +927,6 @@ def ensure_session_collaboration_trace(session: dict[str, Any]) -> list[dict[str
         replace_roles={"diagnosis", "materials", "content", "path", "feedback"},
     )
 
-
 def default_profile_payload(profile_id: str) -> dict[str, Any]:
     base = resolve_profile(profile_id)
     normalized = normalize_profile_payload(base)
@@ -1430,7 +934,6 @@ def default_profile_payload(profile_id: str) -> dict[str, Any]:
     normalized["next_focus"] = "先补齐当前课程的核心基础知识。"
     normalized.update(resolve_profile_recommendation_tags(normalized, normalized.get("next_focus", ""), ""))
     return normalized
-
 
 def is_direct_content_request(message: str) -> bool:
     lowered = message.lower()
@@ -1458,7 +961,6 @@ def is_direct_content_request(message: str) -> bool:
     ]
     return any(keyword in lowered for keyword in keywords)
 
-
 def wants_runnable_python(message: str) -> bool:
     lowered = message.lower()
     keywords = [
@@ -1481,7 +983,6 @@ def wants_runnable_python(message: str) -> bool:
     ]
     return any(keyword in lowered for keyword in keywords)
 
-
 def keep_only_primary_code_reply(reply: str) -> str:
     marker = "```"
     first = reply.find(marker)
@@ -1492,19 +993,15 @@ def keep_only_primary_code_reply(reply: str) -> str:
         return reply.strip()
     return reply[: second + len(marker)].strip()
 
-
 def contains_python_code_block(reply: str) -> bool:
     lowered = reply.lower()
     return "```python" in lowered or "``` py" in lowered
 
-
 def normalize_message_for_matching(message: str) -> str:
     return " ".join(message.lower().replace("\n", " ").split())
 
-
 def contains_any_keyword(text: str, keywords: list[str]) -> bool:
     return any(keyword in text for keyword in keywords)
-
 
 def has_mermaid_intent(message: str) -> bool:
     lowered = normalize_message_for_matching(message)
@@ -1524,7 +1021,6 @@ def has_mermaid_intent(message: str) -> bool:
             "\u77e5\u8bc6\u7ed3\u6784\u56fe",
         )
     )
-
 
 def extract_mermaid_topic(user_message: str) -> str:
     text = str(user_message or "").strip()
@@ -1556,14 +1052,12 @@ def extract_mermaid_topic(user_message: str) -> str:
         return ""
     return text
 
-
 def strip_mermaid_code_fence(chart: str) -> str:
     cleaned = str(chart or "").strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:mermaid)?", "", cleaned, flags=re.IGNORECASE).strip()
         cleaned = re.sub(r"```$", "", cleaned).strip()
     return cleaned
-
 
 def compact_artifact_sections(payload: Any) -> list[dict[str, Any]]:
     if not isinstance(payload, dict):
@@ -1585,7 +1079,6 @@ def compact_artifact_sections(payload: Any) -> list[dict[str, Any]]:
         )
     return compact_sections
 
-
 def has_mermaid_basis(session: dict[str, Any], topic: str) -> bool:
     if topic:
         return True
@@ -1602,14 +1095,12 @@ def has_mermaid_basis(session: dict[str, Any], topic: str) -> bool:
     ]
     return len(previous_user_messages) >= 2
 
-
 def mermaid_label(value: Any, fallback: str, max_length: int = 28) -> str:
     text = str(value or "").strip() or fallback
     text = re.sub(r"[\r\n\t]+", " ", text)
     text = re.sub(r'["\\`<>{}\[\]]+', "", text)
     text = re.sub(r"\s+", " ", text).strip() or fallback
     return f"{text[:max_length]}..." if len(text) > max_length else text
-
 
 def build_path_mermaid_reply(session: dict[str, Any]) -> str:
     steps = build_current_path_steps(session)
@@ -1637,7 +1128,6 @@ def build_path_mermaid_reply(session: dict[str, Any]) -> str:
 
     chart = "\n".join(lines)
     return f"\u8fd9\u5f20\u56fe\u662f\u6309\u5f53\u524d\u5b66\u4e60\u8def\u5f84\u6574\u7406\u7684\uff1a\n\n```mermaid\n{chart}\n```"
-
 
 def build_profile_mermaid_reply(session: dict[str, Any]) -> str:
     latest_generation = session.get("latest_generation")
@@ -1667,7 +1157,6 @@ def build_profile_mermaid_reply(session: dict[str, Any]) -> str:
 
     chart = "\n".join(lines)
     return f"\u8fd9\u5f20\u56fe\u662f\u6309\u5f53\u524d\u5b66\u4e60\u60c5\u51b5\u6574\u7406\u7684\uff1a\n\n```mermaid\n{chart}\n```"
-
 
 def build_mermaid_learning_map_reply(settings: Settings, session: dict[str, Any], user_message: str) -> str:
     topic = extract_mermaid_topic(user_message)
@@ -1735,7 +1224,6 @@ def build_mermaid_learning_map_reply(settings: Settings, session: dict[str, Any]
         return clarification or "可以。你先说一下想画哪个主题，我再帮你生成图。"
     return f"{intro}\n\n```mermaid\n{chart}\n```"
 
-
 def has_explicit_code_intent(message: str) -> bool:
     lowered = normalize_message_for_matching(message)
     keywords = [
@@ -1772,7 +1260,6 @@ def has_explicit_code_intent(message: str) -> bool:
         or "write" in lowered
     )
 
-
 def wants_code_only_reply(message: str) -> bool:
     lowered = normalize_message_for_matching(message)
     keywords = [
@@ -1786,7 +1273,6 @@ def wants_code_only_reply(message: str) -> bool:
         "only code",
     ]
     return contains_any_keyword(lowered, keywords)
-
 
 def build_runnable_python_reply(
     settings: Settings,
@@ -1861,7 +1347,6 @@ Requirements:
     if explanation:
         reply = f"{reply}\n\n{explanation}" if reply else explanation
     return reply.strip()
-
 
 def build_direct_content_payload(
     settings: Settings,
@@ -1947,7 +1432,6 @@ Rules:
         "ready_to_generate": bool(payload.get("ready_to_generate", False)),
     }
 
-
 def build_chat_payload(settings: Settings, session: dict[str, Any], user_message: str) -> dict[str, Any]:
     course = resolve_course(session["course_id"])
     direct_content_request = has_mermaid_intent(user_message) or has_explicit_code_intent(user_message) or is_direct_content_request(user_message)
@@ -2012,7 +1496,6 @@ Additional rules:
         "ready_to_generate": bool(payload.get("ready_to_generate", False)),
     }
 
-
 def is_learning_plan_request(user_message: str, reply: str = "") -> bool:
     if has_mermaid_intent(user_message):
         return False
@@ -2045,7 +1528,6 @@ def is_learning_plan_request(user_message: str, reply: str = "") -> bool:
         "整理",
     )
     return any(word in compact for word in action_words) or compact in explicit_plan_words
-
 
 def build_suggested_actions(session: dict[str, Any], reply: str, user_message: str, ready_to_generate: bool) -> list[dict[str, str]]:
     if has_mermaid_intent(user_message):
@@ -2081,7 +1563,6 @@ def build_suggested_actions(session: dict[str, Any], reply: str, user_message: s
 
     return actions[:3]
 
-
 def polish_chat_reply(reply: str) -> str:
     polished = reply.strip()
     replacements = {
@@ -2092,7 +1573,6 @@ def polish_chat_reply(reply: str) -> str:
     for source, target in replacements.items():
         polished = polished.replace(source, target)
     return polished
-
 
 def build_profile_summary_payload(settings: Settings, session: dict[str, Any]) -> dict[str, Any]:
     course = resolve_course(session["course_id"])
@@ -2273,7 +1753,6 @@ Additional rules:
         "depth_label": depth_label,
         "using_materials": using_materials,
     }
-
 
 def build_artifact_payload_from_profile(
     settings: Settings,
@@ -2719,12 +2198,10 @@ ARTIFACT_VARIANT_BANKS: dict[str, list[dict[str, Any]]] = {
     ],
 }
 
-
 def select_artifact_variant(artifact: ArtifactKind, variant: int) -> dict[str, Any]:
     banks = ARTIFACT_VARIANT_BANKS[str(artifact)]
     index = (max(variant, 1) - 1) % len(banks)
     return banks[index]
-
 
 def build_variant_artifact_payload(artifact: ArtifactKind, variant: int) -> dict[str, Any]:
     bank = select_artifact_variant(artifact, variant)
@@ -2735,7 +2212,6 @@ def build_variant_artifact_payload(artifact: ArtifactKind, variant: int) -> dict
         "sections": bank["sections"],
     }
 
-
 def artifact_sections_match_variant(sections: list[dict[str, Any]], bank: dict[str, Any]) -> bool:
     combined_parts: list[str] = []
     for section in sections:
@@ -2745,7 +2221,6 @@ def artifact_sections_match_variant(sections: list[dict[str, Any]], bank: dict[s
             combined_parts.extend(str(line) for line in lines)
     combined = "\n".join(combined_parts)
     return any(str(keyword) in combined for keyword in bank.get("keywords", []))
-
 
 LEGACY_ARTIFACT_MARKERS = (
     "count_even",
@@ -2758,7 +2233,6 @@ LEGACY_ARTIFACT_MARKERS = (
     "write_scores",
 )
 
-
 def artifact_contains_legacy_topics(sections: list[dict[str, Any]]) -> bool:
     combined_parts: list[str] = []
     for section in sections:
@@ -2768,7 +2242,6 @@ def artifact_contains_legacy_topics(sections: list[dict[str, Any]]) -> bool:
             combined_parts.extend(str(line) for line in lines)
     combined = "\n".join(combined_parts)
     return any(marker in combined for marker in LEGACY_ARTIFACT_MARKERS)
-
 
 def artifact_payload_is_usable(payload: Any, artifact: ArtifactKind, bank: dict[str, Any]) -> bool:
     if not isinstance(payload, dict):
@@ -2823,7 +2296,6 @@ def artifact_payload_is_usable(payload: Any, artifact: ArtifactKind, bank: dict[
 
     return True
 
-
 def build_rotating_artifact_payload_from_profile(
     settings: Settings,
     course: dict[str, Any],
@@ -2843,7 +2315,6 @@ def build_rotating_artifact_payload_from_profile(
         return payload
 
     return build_variant_artifact_payload(artifact, variant)
-
 
 def build_distinct_artifact_payload_from_profile(
     settings: Settings,
@@ -3022,7 +2493,6 @@ def build_distinct_artifact_payload_from_profile(
         "sections": normalized_sections,
     }
 
-
 def build_aligned_qa_script_payload_from_summary(
     settings: Settings,
     course: dict[str, Any],
@@ -3124,7 +2594,6 @@ def build_aligned_qa_script_payload_from_summary(
         "sections": normalized_sections,
     }
 
-
 def build_exercise_review_payload(
     settings: Settings,
     course: dict[str, Any],
@@ -3206,7 +2675,6 @@ def build_exercise_review_payload(
         "can_view_reference": bool(payload.get("can_view_reference", True)),
     }
 
-
 def build_path_assessment_payload(
     settings: Settings,
     course: dict[str, Any],
@@ -3262,7 +2730,6 @@ Rules:
         "next_advice": str(payload.get("next_advice", "")).strip() or "\u5148\u628a\u8fd9\u4e00\u6b65\u7684\u5173\u952e\u4ee3\u7801\u518d\u72ec\u7acb\u5199\u4e00\u904d\uff0c\u518d\u8fdb\u5165\u4e0b\u4e00\u6b65\u3002",
     }
 
-
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     settings = get_settings()
@@ -3276,11 +2743,9 @@ def health() -> dict[str, Any]:
         "embedding_model": settings.dashscope_embedding_model,
     }
 
-
 @app.get("/api/settings")
 def get_app_settings() -> dict[str, Any]:
     return settings_payload(get_settings())
-
 
 @app.post("/api/settings")
 def update_app_settings(request: AppSettingsUpdate) -> dict[str, Any]:
@@ -3306,7 +2771,6 @@ def update_app_settings(request: AppSettingsUpdate) -> dict[str, Any]:
     save_app_settings(current)
     return settings_payload(get_settings())
 
-
 @app.get("/api/catalog")
 def catalog() -> dict[str, Any]:
     return {
@@ -3315,16 +2779,13 @@ def catalog() -> dict[str, Any]:
         "focus_modes": ["讲解", "练习", "复习"],
     }
 
-
 @app.get("/api/history")
 def history() -> dict[str, list[dict[str, Any]]]:
     return {"records": []}
 
-
 @app.get("/api/quality")
 def quality() -> dict[str, list[dict[str, str]]]:
     return {"checks": []}
-
 
 @app.get("/api/context")
 def context(course_id: CourseId = "python") -> dict[str, Any]:
@@ -3338,11 +2799,9 @@ def context(course_id: CourseId = "python") -> dict[str, Any]:
         "insight": "先通过对话了解学生的学习目标和困难点，再生成学习方案。",
     }
 
-
 @app.get("/api/chat/sessions")
 def chat_sessions() -> dict[str, Any]:
     return {"sessions": list_sessions()}
-
 
 @app.get("/api/chat/session/{session_id}")
 def get_chat_session(session_id: str) -> dict[str, Any]:
@@ -3377,7 +2836,6 @@ def get_chat_session(session_id: str) -> dict[str, Any]:
         "collaboration_trace": collaboration_trace,
     }
 
-
 @app.post("/api/chat/session")
 def create_chat_session(request: ChatSessionRequest) -> dict[str, Any]:
     reusable_session = find_reusable_session(request.course_id)
@@ -3385,7 +2843,6 @@ def create_chat_session(request: ChatSessionRequest) -> dict[str, Any]:
         return reusable_session
     payload = create_session_payload(request.course_id)
     return payload
-
 
 @app.patch("/api/chat/session/{session_id}")
 def rename_chat_session(session_id: str, request: RenameSessionRequest) -> dict[str, Any]:
@@ -3395,12 +2852,10 @@ def rename_chat_session(session_id: str, request: RenameSessionRequest) -> dict[
     save_session(session)
     return build_session_summary(session)
 
-
 @app.delete("/api/chat/session/{session_id}")
 def delete_chat_session(session_id: str) -> dict[str, Any]:
     delete_session_file(session_id)
     return {"status": "deleted", "session_id": session_id}
-
 
 @app.post("/api/chat/message")
 def chat_message(request: ChatMessageRequest) -> dict[str, Any]:
@@ -3445,7 +2900,6 @@ def chat_message(request: ChatMessageRequest) -> dict[str, Any]:
         "ready_to_generate": session["ready_to_generate"],
     }
 
-
 @app.post("/api/profile/summarize")
 def summarize_profile(request: ProfileSummaryRequest) -> dict[str, Any]:
     settings = ensure_llm_configured()
@@ -3455,7 +2909,6 @@ def summarize_profile(request: ProfileSummaryRequest) -> dict[str, Any]:
         "session_id": session["session_id"],
         **profile,
     }
-
 
 @app.patch("/api/path/progress")
 def update_path_progress(request: PathProgressRequest) -> dict[str, Any]:
@@ -3475,7 +2928,6 @@ def update_path_progress(request: PathProgressRequest) -> dict[str, Any]:
         "session_id": session["session_id"],
         "path_progress": progress,
     }
-
 
 @app.post("/api/path/assessment")
 def assess_path_step(request: PathAssessmentRequest) -> dict[str, Any]:
@@ -3515,7 +2967,6 @@ def assess_path_step(request: PathAssessmentRequest) -> dict[str, Any]:
         "path_assessments": assessments,
         "assessment": record,
     }
-
 
 @app.post("/api/generate")
 def generate(request: GenerateRequest) -> dict[str, Any]:
@@ -3591,7 +3042,6 @@ def generate(request: GenerateRequest) -> dict[str, Any]:
     profile = default_profile_payload(profile_id)
     return build_generation_payload_from_profile(settings, course, profile, request.focus, request.depth, request.version)
 
-
 @app.post("/api/artifact")
 def artifact(request: ArtifactRequest) -> dict[str, Any]:
     settings = ensure_llm_configured()
@@ -3641,7 +3091,6 @@ def artifact(request: ArtifactRequest) -> dict[str, Any]:
         request.variant,
     )
 
-
 @app.post("/api/exercise/review")
 def review_exercise(request: ExerciseReviewRequest) -> dict[str, Any]:
     settings = ensure_llm_configured()
@@ -3689,7 +3138,6 @@ def review_exercise(request: ExerciseReviewRequest) -> dict[str, Any]:
         "collaboration_trace": collaboration_trace,
     }
 
-
 @app.patch("/api/exercise/reference")
 def update_exercise_reference(request: ExerciseReferenceRequest) -> dict[str, Any]:
     session = load_session(request.session_id)
@@ -3713,7 +3161,6 @@ def update_exercise_reference(request: ExerciseReferenceRequest) -> dict[str, An
         "session_id": session["session_id"],
         "submission": submission,
     }
-
 
 @app.post("/api/online-resources")
 def online_resources(request: OnlineResourceRequest) -> dict[str, Any]:
