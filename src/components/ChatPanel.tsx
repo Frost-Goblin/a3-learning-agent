@@ -9,8 +9,6 @@ type ChatPanelLabels = {
   you: string
   preparing: string
   placeholder: string
-  generating: string
-  generatePlan: string
   thinking: string
   send: string
 }
@@ -24,13 +22,10 @@ type ChatPanelProps = {
   draft: string
   dialogScrollerRef: RefObject<HTMLDivElement | null>
   sessionId: string
-  llmConfigured: boolean
   sessionLoading: boolean
   messageLoading: boolean
-  generationLoading: boolean
   setDraft: (value: string) => void
   onSendMessage: () => void
-  onGenerate: () => void
   onSuggestedAction: (action: SuggestedAction) => void
   isSuggestedActionDisabled: (actionType: SuggestedActionType) => boolean
   renderSuggestedActionIcon: (actionType: SuggestedActionType) => ReactNode
@@ -46,13 +41,10 @@ export function ChatPanel({
   draft,
   dialogScrollerRef,
   sessionId,
-  llmConfigured,
   sessionLoading,
   messageLoading,
-  generationLoading,
   setDraft,
   onSendMessage,
-  onGenerate,
   onSuggestedAction,
   isSuggestedActionDisabled,
   renderSuggestedActionIcon,
@@ -78,7 +70,7 @@ export function ChatPanel({
                     <span className="message-label">{message.role === 'assistant' ? labels.assistant : labels.you}</span>
                     {message.role === 'assistant' ? (
                       <div className="chat-markdown">
-                        <LearningMarkdown content={message.content} />
+                        <LearningMarkdown content={message.content} renderMermaid={!(messageLoading && index === messages.length - 1)} />
                       </div>
                     ) : (
                       <p>{message.content}</p>
@@ -124,10 +116,6 @@ export function ChatPanel({
             <div className="composer-actions">
               <div className="stage-pill">{stageLabel}</div>
               <div className="composer-buttons">
-                <button className="ghost-button" type="button" onClick={onGenerate} disabled={!llmConfigured || !sessionId || generationLoading}>
-                  <Sparkles size={16} />
-                  {generationLoading ? labels.generating : labels.generatePlan}
-                </button>
                 <button className="primary-button" type="button" onClick={onSendMessage} disabled={!draft.trim() || messageLoading || sessionLoading}>
                   <SendHorizontal size={16} />
                   {messageLoading ? labels.thinking : labels.send}

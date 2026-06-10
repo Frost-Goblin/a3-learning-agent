@@ -114,7 +114,12 @@ export function MermaidDiagram({ chart }: { chart: string }) {
   return <div className="mermaid-diagram" dangerouslySetInnerHTML={{ __html: svg || '<span>正在生成图示...</span>' }} />
 }
 
-function MarkdownCodeBlock({ inline, className = '', children }: MarkdownCodeProps) {
+function MarkdownCodeBlock({
+  inline,
+  className = '',
+  children,
+  renderMermaid = true,
+}: MarkdownCodeProps & { renderMermaid?: boolean }) {
   const [copied, setCopied] = useState(false)
   const rawCode = String(children ?? '').replace(/\n$/, '')
   const language = /language-([\w-]+)/.exec(className)?.[1] ?? 'python'
@@ -124,6 +129,13 @@ function MarkdownCodeBlock({ inline, className = '', children }: MarkdownCodePro
   }
 
   if (language.toLowerCase() === 'mermaid') {
+    if (!renderMermaid) {
+      return (
+        <div className="mermaid-diagram mermaid-pending">
+          <span>图示生成完成后显示</span>
+        </div>
+      )
+    }
     return <MermaidDiagram chart={rawCode} />
   }
 
@@ -153,14 +165,14 @@ function MarkdownCodeBlock({ inline, className = '', children }: MarkdownCodePro
   )
 }
 
-export function LearningMarkdown({ content }: { content: string }) {
+export function LearningMarkdown({ content, renderMermaid = true }: { content: string; renderMermaid?: boolean }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       rehypePlugins={[rehypeHighlight]}
       components={{
         pre: ({ children }) => <>{children}</>,
-        code: MarkdownCodeBlock,
+        code: (props) => <MarkdownCodeBlock {...props} renderMermaid={renderMermaid} />,
       }}
     >
       {prepareAssistantMarkdown(content)}

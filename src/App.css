@@ -594,6 +594,27 @@
   align-items: center;
 }
 
+.plan-reminder-card {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(11, 107, 203, 0.16);
+}
+
+.plan-reminder-card span {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.plan-reminder-card p {
+  margin: 5px 0 9px;
+}
+
+.plan-reminder-card .primary-button {
+  width: 100%;
+  justify-content: center;
+  min-height: 36px;
+}
+
 .chip-list {
   display: flex;
   flex-wrap: wrap;
@@ -993,6 +1014,13 @@ input[type='range'] {
   display: block;
   color: var(--muted);
   font-size: 13px;
+}
+
+.mermaid-pending {
+  min-height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .mermaid-error {

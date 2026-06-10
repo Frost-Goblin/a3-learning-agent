@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from backend.online_resources import TAG_CATALOG, recommend_online_resources, resolve_profile_recommendation_tags
-from backend.model_client import call_chat_json, chat_runtime_label, embed_texts
+from backend.model_client import call_chat_json, chat_runtime_label, embed_texts, stream_chat_json
 from backend.core import MATERIALS_DIR, SESSIONS_DIR, json_dumps, now_iso
 from backend.providers import CHAT_PROVIDER_OPTIONS, EMBEDDING_PROVIDER_OPTIONS, provider_base_url, provider_default_model
 from backend.schemas import (
@@ -118,7 +118,10 @@ SYSTEM_PROMPTS = {
     "chat": (
         "你是一名高校课程学习助手。你要通过自然对话了解学生的学习目标、基础、困难点、"
         "时间安排和偏好。每次只推进一个最关键的问题，不要一次问很多项，不要提前生成学习资料。"
-        "当信息还不够时继续追问，当信息足够时用自然语言告诉对方可以开始生成学习方案。"
+        "当信息还不够时继续追问，当信息足够时只把 ready_to_generate 设为 true。"
+        "不要在 reply 中提醒生成学习方案，不要提按钮，不要把下一步操作写进聊天正文。"
+        "只有已经明确了解学习目标、当前基础、主要薄弱点和可用时间时，ready_to_generate 才能为 true。"
+        "如果学生只是要求讲解知识点、知识架构、代码示例、题目或资料，不要判定为生成学习方案。"
         "必须输出严格 JSON，不要输出 Markdown。"
     ),
     "profile": (
@@ -1165,7 +1168,7 @@ def build_profile_mermaid_reply(session: dict[str, Any]) -> str:
 def build_mermaid_learning_map_reply(settings: Settings, session: dict[str, Any], user_message: str) -> str:
     topic = extract_mermaid_topic(user_message)
     if not has_mermaid_basis(session, topic):
-        return "可以。你先说一下想画哪个主题，比如列表方法、面向对象、文件读写，或先生成学习方案后我再按当前路径画图。"
+        return "可以。你先说一下想画哪个主题，比如列表方法、面向对象或文件读写。"
 
     course = resolve_course(session["course_id"])
     latest_generation = session.get("latest_generation") if isinstance(session.get("latest_generation"), dict) else {}
@@ -1477,10 +1480,13 @@ def build_chat_payload(settings: Settings, session: dict[str, Any], user_message
 
 要求：
 1. reply 语气自然，像学习助手，不要用条目问卷。
-2. 每次只推进一个关键问题；如果信息已经够了，可以自然提醒对方开始生成学习方案。
+2. 每次只推进一个关键问题；如果信息已经够了，只设置 ready_to_generate，不要在 reply 中提醒生成学习方案。
 3. profile_completion 输出 0 到 100 的整数。
 4. missing_slots 保留 0 到 4 项，内容只写还缺的信息点短语。
 5. 不要生成学习资料，不要输出系统实现说明。
+6. 只有已经明确掌握学习目标、当前基础、主要薄弱点、可用时间四类信息时，ready_to_generate 才能为 true。
+7. 如果学生只是让你讲解知识架构、知识点、代码题、资料或某个概念，ready_to_generate 必须为 false。
+8. 禁止在 reply 中出现“生成学习方案”“点击按钮”“可以开始生成”等操作提示。
 """
     if direct_content_request:
         prompt += """
@@ -1548,9 +1554,7 @@ def build_suggested_actions(session: dict[str, Any], reply: str, user_message: s
 
     plan_requested = is_learning_plan_request(user_message, reply)
     if ready_to_generate or plan_requested:
-        add("generate_plan", "\u751f\u6210\u5b66\u4e60\u65b9\u6848")
-        if plan_requested or ready_to_generate:
-            return actions
+        return actions
 
     if any(word in text for word in ("典例", "例题", "精讲", "讲解")):
         add("generate_examples", "\u751f\u6210\u5178\u4f8b\u7cbe\u8bb2")
@@ -1568,15 +1572,14 @@ def build_suggested_actions(session: dict[str, Any], reply: str, user_message: s
     return actions[:3]
 
 def polish_chat_reply(reply: str) -> str:
-    polished = reply.strip()
-    replacements = {
-        "\u73b0\u5728\u5c31\u53ef\u4ee5\u5f00\u59cb\u5b66\u4e60\u5566~": "\u70b9\u51fb\u4e0b\u9762\u6309\u94ae\u5c31\u53ef\u4ee5\u751f\u6210\u4e86\u3002",
-        "\u73b0\u5728\u5c31\u53ef\u4ee5\u5f00\u59cb\u5b66\u4e60\u5566\uff5e": "\u70b9\u51fb\u4e0b\u9762\u6309\u94ae\u5c31\u53ef\u4ee5\u751f\u6210\u4e86\u3002",
-        "\u73b0\u5728\u5c31\u53ef\u4ee5\u5f00\u59cb\u5b66\u4e60\u4e86": "\u70b9\u51fb\u4e0b\u9762\u6309\u94ae\u5c31\u53ef\u4ee5\u751f\u6210\u4e86\u3002",
-    }
-    for source, target in replacements.items():
-        polished = polished.replace(source, target)
-    return polished
+    return reply.strip()
+
+def remove_plan_action_text(reply: str) -> str:
+    blocked_keywords = ("生成学习方案", "学习方案", "学习计划", "点击按钮", "点击下方", "点击下面", "开始生成")
+    sentences = re.split(r"(?<=[。！？!?])", reply.strip())
+    kept = [sentence for sentence in sentences if sentence.strip() and not any(keyword in sentence for keyword in blocked_keywords)]
+    cleaned = "".join(kept).strip()
+    return cleaned or "我已记录你的情况，我们可以继续聊具体的学习困难。"
 
 def build_profile_summary_payload(settings: Settings, session: dict[str, Any]) -> dict[str, Any]:
     course = resolve_course(session["course_id"])
@@ -2861,22 +2864,32 @@ def delete_chat_session(session_id: str) -> dict[str, Any]:
     delete_session_file(session_id)
     return {"status": "deleted", "session_id": session_id}
 
-def complete_chat_message(settings: Settings, session: dict[str, Any], user_message: str, *, use_stream: bool = False) -> dict[str, Any]:
-    session["messages"].append({"role": "user", "content": user_message})
-
-    payload = build_chat_payload(settings, session, user_message, use_stream=use_stream)
-    payload["reply"] = polish_chat_reply(payload["reply"])
+def finalize_chat_payload(session: dict[str, Any], user_message: str, payload: dict[str, Any]) -> dict[str, Any]:
+    payload["reply"] = remove_plan_action_text(polish_chat_reply(payload["reply"]))
     mermaid_requested = has_mermaid_intent(user_message)
     plan_requested = is_learning_plan_request(user_message, payload["reply"])
-    ready_for_plan = bool(payload.get("ready_to_generate", False)) or int(payload.get("profile_completion", 0)) >= 75
+    direct_content_request = has_explicit_code_intent(user_message) or is_direct_content_request(user_message)
+    user_turn_count = sum(1 for item in session["messages"] if item.get("role") == "user")
+    missing_slots = [str(item).strip() for item in payload.get("missing_slots", []) if str(item).strip()]
+    profile_completion = max(0, min(100, int(payload.get("profile_completion", 0))))
+    model_ready_for_plan = bool(payload.get("ready_to_generate", False))
+    ready_for_plan = (
+        model_ready_for_plan
+        and profile_completion >= 90
+        and not missing_slots
+        and user_turn_count >= 3
+        and not direct_content_request
+    )
     if mermaid_requested:
         payload["ready_to_generate"] = False
     elif plan_requested:
-        payload["reply"] = "\u53ef\u4ee5\uff0c\u70b9\u51fb\u4e0b\u9762\u7684\u6309\u94ae\u5373\u53ef\u751f\u6210\u5b66\u4e60\u65b9\u6848\u3002"
         payload["ready_to_generate"] = True
+    elif direct_content_request:
+        payload["ready_to_generate"] = False
     elif ready_for_plan:
-        payload["reply"] = "\u4f60\u63d0\u4f9b\u7684\u4fe1\u606f\u5df2\u7ecf\u8db3\u591f\u6574\u7406\u5b66\u4e60\u65b9\u6848\u3002\u8981\u73b0\u5728\u751f\u6210\u5b66\u4e60\u65b9\u6848\u5417\uff1f\u70b9\u51fb\u4e0b\u65b9\u6309\u94ae\u5373\u53ef\u751f\u6210\u3002"
         payload["ready_to_generate"] = True
+    else:
+        payload["ready_to_generate"] = False
     suggested_actions = build_suggested_actions(session, payload["reply"], user_message, bool(payload["ready_to_generate"]))
     assistant_message = {"role": "assistant", "content": payload["reply"]}
     if suggested_actions:
@@ -2900,6 +2913,11 @@ def complete_chat_message(settings: Settings, session: dict[str, Any], user_mess
         "ready_to_generate": session["ready_to_generate"],
     }
 
+def complete_chat_message(settings: Settings, session: dict[str, Any], user_message: str, *, use_stream: bool = False) -> dict[str, Any]:
+    session["messages"].append({"role": "user", "content": user_message})
+    payload = build_chat_payload(settings, session, user_message, use_stream=use_stream)
+    return finalize_chat_payload(session, user_message, payload)
+
 @app.post("/api/chat/message")
 def chat_message(request: ChatMessageRequest) -> dict[str, Any]:
     settings = ensure_llm_configured()
@@ -2915,7 +2933,80 @@ def chat_message_stream(request: ChatMessageRequest) -> StreamingResponse:
     def event_stream():
         yield ndjson_event("start", session_id=session["session_id"])
         try:
-            payload = complete_chat_message(settings, session, user_message, use_stream=True)
+            direct_content_request = has_mermaid_intent(user_message) or has_explicit_code_intent(user_message) or is_direct_content_request(user_message)
+            if direct_content_request:
+                payload = complete_chat_message(settings, session, user_message, use_stream=False)
+                reply = str(payload.get("reply", ""))
+                if reply:
+                    for index in range(0, len(reply), 2):
+                        yield ndjson_event("delta", text=reply[index : index + 2])
+                yield ndjson_event("done", payload=payload)
+                return
+
+            session["messages"].append({"role": "user", "content": user_message})
+            course = resolve_course(session["course_id"])
+            history_lines = []
+            for item in session["messages"][-MAX_CHAT_HISTORY:]:
+                role = "学生" if item["role"] == "user" else "系统"
+                history_lines.append(f"{role}：{item['content']}")
+            history_text = "\n".join(history_lines)
+            prompt = f"""
+请基于以下信息继续和学生对话。
+
+课程信息：
+{json_dumps(course)}
+
+当前会话状态：
+{json_dumps({
+    "profile_completion": session.get("profile_completion", 0),
+    "ready_to_generate": session.get("ready_to_generate", False),
+    "missing_slots": session.get("missing_slots", []),
+})}
+
+已有对话：
+{history_text}
+
+学生刚刚说：
+{user_message}
+
+严格输出如下 JSON：
+{{
+  "reply": "...",
+  "profile_completion": 0,
+  "missing_slots": ["..."],
+  "ready_to_generate": true
+}}
+
+要求：
+1. reply 语气自然，像学习助手，不要用条目问卷。
+2. 每次只推进一个关键问题；如果信息已经够了，只设置 ready_to_generate，不要在 reply 中提醒生成学习方案。
+3. profile_completion 输出 0 到 100 的整数。
+4. missing_slots 保留 0 到 4 项，内容只写还缺的信息点短语。
+5. 不要生成学习资料，不要输出系统实现说明。
+6. 只有已经明确掌握学习目标、当前基础、主要薄弱点、可用时间四类信息时，ready_to_generate 才能为 true。
+7. 如果学生只是让你讲解知识架构、知识点、代码题、资料或某个概念，ready_to_generate 必须为 false。
+8. 禁止在 reply 中出现“生成学习方案”“点击按钮”“可以开始生成”等操作提示。
+"""
+            streamed_payload: dict[str, Any] | None = None
+            stream_buffer = ""
+            blocked_stream_keywords = ("生成学习方案", "学习方案", "学习计划", "点击按钮", "点击下方", "点击下面", "开始生成")
+            for event in stream_chat_json(settings, SYSTEM_PROMPTS["chat"], prompt):
+                if event.get("type") == "delta":
+                    stream_buffer += str(event.get("text", ""))
+                    parts = re.split(r"(?<=[。！？!?])", stream_buffer)
+                    stream_buffer = parts.pop() if parts else ""
+                    for sentence in parts:
+                        if sentence and not any(keyword in sentence for keyword in blocked_stream_keywords):
+                            yield ndjson_event("delta", text=sentence)
+                elif event.get("type") == "payload":
+                    payload_value = event.get("payload")
+                    if isinstance(payload_value, dict):
+                        streamed_payload = payload_value
+            if streamed_payload is None:
+                raise HTTPException(status_code=502, detail="模型没有返回可解析的对话结果。")
+            payload = finalize_chat_payload(session, user_message, streamed_payload)
+            if stream_buffer and not any(keyword in stream_buffer for keyword in blocked_stream_keywords):
+                yield ndjson_event("delta", text=stream_buffer)
         except HTTPException as exc:
             yield ndjson_event("error", detail=str(exc.detail), status_code=exc.status_code)
             return
@@ -2923,10 +3014,6 @@ def chat_message_stream(request: ChatMessageRequest) -> StreamingResponse:
             yield ndjson_event("error", detail=f"{chat_runtime_label(settings)} 生成失败：{exc}")
             return
 
-        reply = str(payload.get("reply", ""))
-        if reply:
-            for index in range(0, len(reply), 2):
-                yield ndjson_event("delta", text=reply[index : index + 2])
         yield ndjson_event("done", payload=payload)
 
     return StreamingResponse(

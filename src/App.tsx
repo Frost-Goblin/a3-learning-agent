@@ -291,16 +291,17 @@ function getPathTheoryResources(resources: OnlineResource[], stepIndex: number) 
   return [resources[start], resources[(start + 1) % resources.length]].filter(Boolean)
 }
 
-function normalizeAssistantMessage(message: string, index: number) {
-  const polished = message
-    .replace(/^好的，?我现在就为你[\s\S]*学习方案。?请稍候。?$/g, '可以，点击下面的按钮即可生成学习方案。')
-    .replace(/^我现在就为你[\s\S]*学习方案。?请稍候。?$/g, '可以，点击下面的按钮即可生成学习方案。')
-    .replace(/^([\s\S]*学习方案[\s\S]*)(要开始吗|准备好了.*开始吗)[？?]?$/g, '要现在生成学习方案吗？点击下方按钮即可生成。')
-    .replace(/现在就可以开始学习啦[~～]?/g, '点击下面按钮就可以生成了。')
-    .replace(/现在就可以开始学习了[~～]?/g, '点击下面按钮就可以生成了。')
+function removePlanActionText(message: string) {
+  const blockedKeywords = ['生成学习方案', '学习方案', '学习计划', '点击按钮', '点击下方', '点击下面', '开始生成']
+  const sentences = message.trim().split(/(?<=[。！？!?])/)
+  const cleaned = sentences.filter((sentence) => sentence.trim() && !blockedKeywords.some((keyword) => sentence.includes(keyword))).join('').trim()
+  return cleaned || (blockedKeywords.some((keyword) => message.includes(keyword)) ? '我已记录你的情况，我们可以继续聊具体的学习困难。' : message)
+}
 
-  if (!looksGarbled(message)) {
-    return polished
+function normalizeAssistantMessage(message: string, index: number) {
+  const cleaned = removePlanActionText(message)
+  if (!looksGarbled(cleaned)) {
+    return cleaned
   }
   if (index === 0) {
     return '\u5148\u548c\u6211\u8bf4\u8bf4\u4f60\u5b66 Python \u662f\u4e3a\u4e86\u4ec0\u4e48\uff0c\u5f53\u524d\u6700\u5361\u7684\u662f\u54ea\u4e00\u5757\uff1f'
@@ -315,7 +316,7 @@ const suggestedActionTypes = new Set<SuggestedActionType>([
   'recommend_resources',
 ])
 
-function normalizeSuggestedActions(actions: ChatMessage['suggested_actions']) {
+function normalizeSuggestedActions(actions: ChatMessage['suggested_actions'], options: { includePlan?: boolean } = {}) {
   if (!Array.isArray(actions)) {
     return []
   }
@@ -324,6 +325,9 @@ function normalizeSuggestedActions(actions: ChatMessage['suggested_actions']) {
   return actions
     .filter((action): action is SuggestedAction => {
       if (!action || !suggestedActionTypes.has(action.type) || seen.has(action.type)) {
+        return false
+      }
+      if (!options.includePlan && action.type === 'generate_plan') {
         return false
       }
       seen.add(action.type)
@@ -339,10 +343,7 @@ function normalizeMessages(messages: ChatMessage[]) {
       return {
         ...message,
         content,
-        suggested_actions:
-          content.includes('生成学习方案') && content.includes('按钮')
-            ? [{ type: 'generate_plan' as const, label: SUGGESTED_ACTION_LABELS.generate_plan }]
-            : normalizeSuggestedActions(message.suggested_actions),
+        suggested_actions: normalizeSuggestedActions(message.suggested_actions),
       }
     }
     return {
@@ -1267,6 +1268,21 @@ function App() {
       void loadSessionSummaries()
     }
 
+    const showSendError = (messageText: string) => {
+      const errorText = normalizeText(messageText, TEXT.sendFailed)
+      setMessages((current) => {
+        const next = [...current]
+        for (let index = next.length - 1; index >= 0; index -= 1) {
+          if (next[index].role === 'assistant') {
+            next[index] = { ...next[index], content: errorText }
+            return next
+          }
+        }
+        return [...next, { role: 'assistant', content: errorText }]
+      })
+      setBackendNotice(errorText)
+    }
+
     const sendFallbackMessage = async () => {
       const response = await fetch('/api/chat/message', {
         method: 'POST',
@@ -1280,9 +1296,7 @@ function App() {
         return
       }
       if (!response.ok) {
-        setMessages(previousMessages)
-        setBackendNotice(await readErrorDetail(response, TEXT.sendFailed))
-        return
+        throw new Error(await readErrorDetail(response, TEXT.sendFailed))
       }
 
       const payload = (await response.json()) as ChatMessagePayload
@@ -1323,9 +1337,10 @@ function App() {
           const next = [...current]
           for (let index = next.length - 1; index >= 0; index -= 1) {
             if (next[index].role === 'assistant') {
+              const nextContent = next[index].content === TEXT.thinking ? text : next[index].content + text
               next[index] = {
                 ...next[index],
-                content: next[index].content === TEXT.thinking ? text : next[index].content + text,
+                content: removePlanActionText(nextContent),
               }
               break
             }
@@ -1339,9 +1354,8 @@ function App() {
         if (!receivedStreamDelta) {
           try {
             await sendFallbackMessage()
-          } catch {
-            setMessages(previousMessages)
-            setBackendNotice(error instanceof Error ? error.message : TEXT.sendFailed)
+          } catch (fallbackError) {
+            showSendError(fallbackError instanceof Error ? fallbackError.message : error instanceof Error ? error.message : TEXT.sendFailed)
           }
         } else {
           setBackendNotice(error instanceof Error ? error.message : TEXT.sendFailed)
@@ -1799,6 +1813,16 @@ function App() {
               <div className="overview-status-foot">
                 <span className="stage-pill">{STAGE_LABELS[stage]}</span>
               </div>
+              {readyToGenerate && !generation ? (
+                <div className="plan-reminder-card">
+                  <span>学习规划提醒</span>
+                  <p>当前信息已经可以整理成个人学习规划。</p>
+                  <button className="primary-button" type="button" onClick={() => void handleGenerate()} disabled={!llmConfigured || !sessionId || generationLoading}>
+                    <Sparkles size={15} />
+                    {generationLoading ? TEXT.generating : TEXT.generatePlan}
+                  </button>
+                </div>
+              ) : null}
             </div>
           </section>
 
@@ -1830,8 +1854,6 @@ function App() {
                   you: TEXT.you,
                   preparing: TEXT.preparing,
                   placeholder: TEXT.placeholder,
-                  generating: TEXT.generating,
-                  generatePlan: TEXT.generatePlan,
                   thinking: TEXT.thinking,
                   send: TEXT.send,
                 }}
@@ -1842,13 +1864,10 @@ function App() {
                 draft={draft}
                 dialogScrollerRef={dialogScrollerRef}
                 sessionId={sessionId}
-                llmConfigured={llmConfigured}
                 sessionLoading={sessionLoading}
                 messageLoading={messageLoading}
-                generationLoading={generationLoading}
                 setDraft={setDraft}
                 onSendMessage={() => void handleSendMessage()}
-                onGenerate={() => void handleGenerate()}
                 onSuggestedAction={(action) => void handleSuggestedAction(action)}
                 isSuggestedActionDisabled={isSuggestedActionDisabled}
                 renderSuggestedActionIcon={renderSuggestedActionIcon}

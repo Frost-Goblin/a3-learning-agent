@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Iterator
 
 import httpx
 from fastapi import HTTPException
@@ -84,6 +84,139 @@ def collect_streamed_chat_content(response: httpx.Response) -> str:
         if text:
             content_parts.append(str(text))
     return "".join(content_parts)
+
+
+class JsonReplyStreamExtractor:
+    def __init__(self) -> None:
+        self.state = "search_key"
+        self.key_buffer = ""
+        self.escaped = False
+        self.unicode_buffer = ""
+        self.reading_unicode = False
+
+    def feed(self, text: str) -> str:
+        output: list[str] = []
+        target = '"reply"'
+        for char in text:
+            if self.state == "search_key":
+                self.key_buffer = (self.key_buffer + char)[-len(target) :]
+                if self.key_buffer == target:
+                    self.state = "after_key"
+                continue
+
+            if self.state == "after_key":
+                if char == ":":
+                    self.state = "before_value"
+                continue
+
+            if self.state == "before_value":
+                if char == '"':
+                    self.state = "in_value"
+                continue
+
+            if self.state != "in_value":
+                continue
+
+            if self.reading_unicode:
+                self.unicode_buffer += char
+                if len(self.unicode_buffer) == 4:
+                    try:
+                        output.append(chr(int(self.unicode_buffer, 16)))
+                    except ValueError:
+                        output.append("\\u" + self.unicode_buffer)
+                    self.unicode_buffer = ""
+                    self.reading_unicode = False
+                    self.escaped = False
+                continue
+
+            if self.escaped:
+                escape_map = {
+                    '"': '"',
+                    "\\": "\\",
+                    "/": "/",
+                    "b": "\b",
+                    "f": "\f",
+                    "n": "\n",
+                    "r": "\r",
+                    "t": "\t",
+                }
+                if char == "u":
+                    self.unicode_buffer = ""
+                    self.reading_unicode = True
+                else:
+                    output.append(escape_map.get(char, char))
+                    self.escaped = False
+                continue
+
+            if char == "\\":
+                self.escaped = True
+                continue
+
+            if char == '"':
+                self.state = "done"
+                continue
+
+            output.append(char)
+        return "".join(output)
+
+
+def iter_streamed_chat_content(response: httpx.Response) -> Iterator[str]:
+    for line in response.iter_lines():
+        line_text = line.decode("utf-8", errors="ignore") if isinstance(line, bytes) else str(line)
+        line_text = line_text.strip()
+        if not line_text or not line_text.startswith("data:"):
+            continue
+        data = line_text.removeprefix("data:").strip()
+        if data == "[DONE]":
+            break
+        try:
+            payload = json.loads(data)
+        except json.JSONDecodeError:
+            continue
+        choices = payload.get("choices", [])
+        if not choices:
+            continue
+        delta = choices[0].get("delta", {})
+        message = choices[0].get("message", {})
+        text = delta.get("content") or message.get("content") or ""
+        if text:
+            yield str(text)
+
+
+def stream_chat_json(settings: Settings, system_prompt: str, user_prompt: str) -> Iterator[dict[str, Any]]:
+    runtime_label = chat_runtime_label(settings)
+    request_payload = build_chat_completion_request(settings, system_prompt, user_prompt, 0.45, stream=True)
+    request_headers = {
+        "Authorization": f"Bearer {settings.deepseek_api_key}",
+        "Content-Type": "application/json",
+    }
+    content_parts: list[str] = []
+    reply_extractor = JsonReplyStreamExtractor()
+
+    try:
+        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+            with client.stream(
+                "POST",
+                f"{settings.deepseek_base_url.rstrip('/')}/chat/completions",
+                headers=request_headers,
+                json=request_payload,
+            ) as response:
+                response.raise_for_status()
+                for content_delta in iter_streamed_chat_content(response):
+                    content_parts.append(content_delta)
+                    reply_delta = reply_extractor.feed(content_delta)
+                    if reply_delta:
+                        yield {"type": "delta", "text": reply_delta}
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=502, detail=f"{runtime_label} 调用失败：{exc.response.text}") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"{runtime_label} 网络错误：{exc}") from exc
+
+    content = "".join(content_parts)
+    try:
+        yield {"type": "payload", "payload": parse_model_json(content)}
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail=f"模型输出不是合法 JSON：{exc}") from exc
 
 
 def call_chat_json(settings: Settings, system_prompt: str, user_prompt: str, *, use_stream: bool = False) -> Any:
