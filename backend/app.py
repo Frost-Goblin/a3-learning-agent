@@ -10,8 +10,9 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from backend.online_resources import TAG_CATALOG, recommend_online_resources, resolve_profile_recommendation_tags
-from backend.model_client import call_chat_json, embed_texts
+from backend.model_client import call_chat_json, chat_runtime_label, embed_texts
 from backend.core import MATERIALS_DIR, SESSIONS_DIR, json_dumps, now_iso
 from backend.providers import CHAT_PROVIDER_OPTIONS, EMBEDDING_PROVIDER_OPTIONS, provider_base_url, provider_default_model
 from backend.schemas import (
@@ -169,6 +170,9 @@ def ensure_llm_configured() -> Settings:
     if not settings.llm_configured:
         raise HTTPException(status_code=501, detail="尚未完成 DeepSeek 与 DashScope 的 API 配置。")
     return settings
+
+def ndjson_event(event_type: str, **payload: Any) -> str:
+    return json.dumps({"type": event_type, **payload}, ensure_ascii=False) + "\n"
 
 def get_collaboration_trace(session: dict[str, Any]) -> list[dict[str, Any]]:
     trace = session.get("collaboration_trace")
@@ -1432,7 +1436,7 @@ Rules:
         "ready_to_generate": bool(payload.get("ready_to_generate", False)),
     }
 
-def build_chat_payload(settings: Settings, session: dict[str, Any], user_message: str) -> dict[str, Any]:
+def build_chat_payload(settings: Settings, session: dict[str, Any], user_message: str, *, use_stream: bool = False) -> dict[str, Any]:
     course = resolve_course(session["course_id"])
     direct_content_request = has_mermaid_intent(user_message) or has_explicit_code_intent(user_message) or is_direct_content_request(user_message)
     if direct_content_request:
@@ -1488,7 +1492,7 @@ Additional rules:
 4. Keep the reply practical, course-relevant, and student-facing.
 """
 
-    payload = call_chat_json(settings, SYSTEM_PROMPTS["chat"], prompt)
+    payload = call_chat_json(settings, SYSTEM_PROMPTS["chat"], prompt, use_stream=use_stream)
     return {
         "reply": str(payload.get("reply", "")).strip(),
         "profile_completion": max(0, min(100, int(payload.get("profile_completion", 0)))),
@@ -2857,14 +2861,10 @@ def delete_chat_session(session_id: str) -> dict[str, Any]:
     delete_session_file(session_id)
     return {"status": "deleted", "session_id": session_id}
 
-@app.post("/api/chat/message")
-def chat_message(request: ChatMessageRequest) -> dict[str, Any]:
-    settings = ensure_llm_configured()
-    session = load_session(request.session_id)
-    user_message = request.message.strip()
+def complete_chat_message(settings: Settings, session: dict[str, Any], user_message: str, *, use_stream: bool = False) -> dict[str, Any]:
     session["messages"].append({"role": "user", "content": user_message})
 
-    payload = build_chat_payload(settings, session, user_message)
+    payload = build_chat_payload(settings, session, user_message, use_stream=use_stream)
     payload["reply"] = polish_chat_reply(payload["reply"])
     mermaid_requested = has_mermaid_intent(user_message)
     plan_requested = is_learning_plan_request(user_message, payload["reply"])
@@ -2899,6 +2899,41 @@ def chat_message(request: ChatMessageRequest) -> dict[str, Any]:
         "missing_slots": session["missing_slots"],
         "ready_to_generate": session["ready_to_generate"],
     }
+
+@app.post("/api/chat/message")
+def chat_message(request: ChatMessageRequest) -> dict[str, Any]:
+    settings = ensure_llm_configured()
+    session = load_session(request.session_id)
+    return complete_chat_message(settings, session, request.message.strip())
+
+@app.post("/api/chat/message/stream")
+def chat_message_stream(request: ChatMessageRequest) -> StreamingResponse:
+    settings = ensure_llm_configured()
+    session = load_session(request.session_id)
+    user_message = request.message.strip()
+
+    def event_stream():
+        yield ndjson_event("start", session_id=session["session_id"])
+        try:
+            payload = complete_chat_message(settings, session, user_message, use_stream=True)
+        except HTTPException as exc:
+            yield ndjson_event("error", detail=str(exc.detail), status_code=exc.status_code)
+            return
+        except Exception as exc:
+            yield ndjson_event("error", detail=f"{chat_runtime_label(settings)} 生成失败：{exc}")
+            return
+
+        reply = str(payload.get("reply", ""))
+        if reply:
+            for index in range(0, len(reply), 2):
+                yield ndjson_event("delta", text=reply[index : index + 2])
+        yield ndjson_event("done", payload=payload)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 @app.post("/api/profile/summarize")
 def summarize_profile(request: ProfileSummaryRequest) -> dict[str, Any]:
@@ -3176,8 +3211,11 @@ def online_resources(request: OnlineResourceRequest) -> dict[str, Any]:
         else:
             settings = get_settings()
             if settings.llm_configured and session.get("messages"):
-                profile_summary = build_profile_summary_payload(settings, session)
-                profile = profile_from_session(session, profile_summary)
+                try:
+                    profile_summary = build_profile_summary_payload(settings, session)
+                    profile = profile_from_session(session, profile_summary)
+                except HTTPException:
+                    profile = default_profile_payload("novice")
             else:
                 profile = default_profile_payload("novice")
     else:

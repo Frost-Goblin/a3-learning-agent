@@ -29,6 +29,8 @@ import type {
   ArtifactSection,
   ArtifactState,
   ChatMessage,
+  ChatMessagePayload,
+  ChatStreamEvent,
   CollaborationRecord,
   Course,
   DisplayMessage,
@@ -440,6 +442,52 @@ async function readErrorDetail(response: Response, fallback: string) {
   } catch {
     return fallback
   }
+}
+
+async function readChatStream(response: Response, onDelta: (text: string) => void): Promise<ChatMessagePayload> {
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new Error('stream unsupported')
+  }
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let donePayload: ChatMessagePayload | null = null
+
+  const handleLine = (line: string) => {
+    const trimmed = line.trim()
+    if (!trimmed) {
+      return
+    }
+    const event = JSON.parse(trimmed) as ChatStreamEvent
+    if (event.type === 'delta' && event.text) {
+      onDelta(event.text)
+    }
+    if (event.type === 'done' && event.payload) {
+      donePayload = event.payload
+    }
+    if (event.type === 'error') {
+      throw new Error(normalizeText(event.detail ?? '', TEXT.sendFailed))
+    }
+  }
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) {
+      break
+    }
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    lines.forEach(handleLine)
+  }
+
+  buffer += decoder.decode()
+  handleLine(buffer)
+  if (!donePayload) {
+    throw new Error(TEXT.sendFailed)
+  }
+  return donePayload
 }
 
 function formatSessionTime(value: string) {
@@ -1200,41 +1248,14 @@ function App() {
 
     const requestSessionId = sessionId
     const hadGeneration = Boolean(generation)
-    setDraft('')
-    setMessageLoading(true)
-    setPendingMessage(message)
-    if (hadGeneration) {
-      setStage('refining')
-    }
+    const previousMessages = messages
+    let receivedStreamDelta = false
+    const requestBody = JSON.stringify({
+      session_id: requestSessionId,
+      message,
+    })
 
-    try {
-      const response = await fetch('/api/chat/message', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          session_id: requestSessionId,
-          message,
-        }),
-      })
-
-      if (!isActiveSession(requestSessionId)) {
-        return
-      }
-      if (!response.ok) {
-        setBackendNotice(await readErrorDetail(response, TEXT.sendFailed))
-        return
-      }
-
-      const payload = (await response.json()) as {
-        session_id?: string
-        messages?: ChatMessage[]
-        profile_completion?: number
-        missing_slots?: string[]
-        ready_to_generate?: boolean
-      }
-
+    const applyChatPayload = (payload: ChatMessagePayload) => {
       if (!isActiveSession(requestSessionId) || (payload.session_id && payload.session_id !== requestSessionId)) {
         return
       }
@@ -1244,9 +1265,87 @@ function App() {
       setStage(hadGeneration ? 'refining' : payload.ready_to_generate ? 'ready_to_generate' : 'chatting')
       setBackendNotice(payload.ready_to_generate ? TEXT.readyNotice : TEXT.refineNotice)
       void loadSessionSummaries()
-    } catch {
+    }
+
+    const sendFallbackMessage = async () => {
+      const response = await fetch('/api/chat/message', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: requestBody,
+      })
+
+      if (!isActiveSession(requestSessionId)) {
+        return
+      }
+      if (!response.ok) {
+        setMessages(previousMessages)
+        setBackendNotice(await readErrorDetail(response, TEXT.sendFailed))
+        return
+      }
+
+      const payload = (await response.json()) as ChatMessagePayload
+      applyChatPayload(payload)
+    }
+
+    setDraft('')
+    setMessageLoading(true)
+    setPendingMessage('')
+    setMessages([...previousMessages, { role: 'user', content: message }, { role: 'assistant', content: TEXT.thinking }])
+    if (hadGeneration) {
+      setStage('refining')
+    }
+
+    try {
+      const response = await fetch('/api/chat/message/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: requestBody,
+      })
+
+      if (!isActiveSession(requestSessionId)) {
+        return
+      }
+      if (!response.ok || !response.body) {
+        await sendFallbackMessage()
+        return
+      }
+
+      const payload = await readChatStream(response, (text) => {
+        receivedStreamDelta = true
+        if (!isActiveSession(requestSessionId)) {
+          return
+        }
+        setMessages((current) => {
+          const next = [...current]
+          for (let index = next.length - 1; index >= 0; index -= 1) {
+            if (next[index].role === 'assistant') {
+              next[index] = {
+                ...next[index],
+                content: next[index].content === TEXT.thinking ? text : next[index].content + text,
+              }
+              break
+            }
+          }
+          return next
+        })
+      })
+      applyChatPayload(payload)
+    } catch (error) {
       if (isActiveSession(requestSessionId)) {
-        setBackendNotice(TEXT.sendFailed)
+        if (!receivedStreamDelta) {
+          try {
+            await sendFallbackMessage()
+          } catch {
+            setMessages(previousMessages)
+            setBackendNotice(error instanceof Error ? error.message : TEXT.sendFailed)
+          }
+        } else {
+          setBackendNotice(error instanceof Error ? error.message : TEXT.sendFailed)
+        }
       }
     } finally {
       if (isActiveSession(requestSessionId)) {

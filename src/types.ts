@@ -22,6 +22,20 @@ export type ChatMessage = {
   suggested_actions?: SuggestedAction[]
 }
 
+export type ChatMessagePayload = {
+  session_id?: string
+  messages?: ChatMessage[]
+  profile_completion?: number
+  missing_slots?: string[]
+  ready_to_generate?: boolean
+}
+
+export type ChatStreamEvent =
+  | { type: 'start'; session_id?: string }
+  | { type: 'delta'; text?: string }
+  | { type: 'done'; payload?: ChatMessagePayload }
+  | { type: 'error'; detail?: string; status_code?: number }
+
 export type DisplayMessage = ChatMessage & {
   status?: 'thinking'
 }

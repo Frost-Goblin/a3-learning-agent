@@ -86,3 +86,10 @@ def public_provider_options(options: list[dict[str, Any]]) -> list[dict[str, Any
     if not any(item.get("id") == "custom" for item in public_options):
         public_options.append({"id": "custom", "label": PROVIDER_LABELS["custom"], "base_url": "", "models": []})
     return public_options
+
+
+def provider_label(options: list[dict[str, Any]], provider_id: str) -> str:
+    if provider_id == "custom":
+        return PROVIDER_LABELS.get("custom", "自定义接口")
+    option = provider_option(options, provider_id)
+    return PROVIDER_LABELS.get(provider_id, str(option.get("label") or provider_id))
