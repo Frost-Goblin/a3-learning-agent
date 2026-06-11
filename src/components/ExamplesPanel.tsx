@@ -78,8 +78,8 @@ export function ExamplesPanel({
 
         <div className="practice-stage">
           {exampleArtifact ? (
-            <div className="artifact-card practice-artifact-card">
-              <div className="practice-stage-head">
+            <div className="artifact-card practice-artifact-card learning-work-card">
+              <div className="practice-stage-head learning-work-head">
                 <div className="practice-stage-copy">
                   <h3>{labels.scriptArtifact}</h3>
                   <p>
@@ -110,7 +110,7 @@ export function ExamplesPanel({
               )}
             </div>
           ) : (
-            <div className="empty-state practice-empty-state">
+            <div className="empty-state practice-empty-state learning-work-card">
               <strong>{labels.emptyScriptArtifactTitle}</strong>
               <p>{labels.emptyScriptArtifactHint}</p>
               <div className="secondary-actions">

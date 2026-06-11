@@ -72,6 +72,7 @@ const TEXT = {
   continueTalk:
     '\u7ee7\u7eed\u901a\u8fc7\u5bf9\u8bdd\u628a\u76ee\u6807\u3001\u96be\u70b9\u548c\u504f\u597d\u8bf4\u6e05\u695a\u3002',
   generatePlan: '\u751f\u6210\u5b66\u4e60\u65b9\u6848',
+  regeneratePlan: '\u91cd\u65b0\u751f\u6210\u5b66\u4e60\u65b9\u6848',
   generating: '\u751f\u6210\u4e2d...',
   noHistory: '\u8fd8\u6ca1\u6709\u804a\u5929\u8bb0\u5f55\u3002',
   continueChat: '\u7ee7\u7eed\u804a\u5929',
@@ -489,11 +490,12 @@ function getConversationStatusCopy(
   readyToGenerate: boolean,
   hasGeneration: boolean,
   profileCompletion: number,
+  userTurnCount: number,
 ) {
   if (hasGeneration) {
     return {
-      label: '\u5df2\u6709\u5b66\u4e60\u65b9\u6848',
-      description: '\u53ef\u4ee5\u7ee7\u7eed\u8ffd\u95ee\uff0c\u6216\u8005\u8ba9\u6211\u6309\u65b0\u8981\u6c42\u518d\u8c03\u6574\u4e00\u904d\u3002',
+      label: '\u5df2\u751f\u6210\u5b66\u4e60\u65b9\u6848',
+      description: '\u53ef\u4ee5\u67e5\u770b\u5b66\u4e60\u60c5\u51b5\u3001\u63a8\u8350\u8d44\u6599\u548c\u5b66\u4e60\u8def\u5f84\uff0c\u4e5f\u53ef\u4ee5\u91cd\u65b0\u751f\u6210\u3002',
       progress: 100,
     }
   }
@@ -506,9 +508,16 @@ function getConversationStatusCopy(
   }
   if (readyToGenerate || stage === 'ready_to_generate') {
     return {
-      label: '\u53ef\u4ee5\u5f00\u59cb\u751f\u6210',
-      description: '\u73b0\u5728\u4fe1\u606f\u5df2\u7ecf\u591f\u7528\uff0c\u53ef\u4ee5\u76f4\u63a5\u751f\u6210\u5b66\u4e60\u65b9\u6848\u3002',
+      label: '\u53ef\u4ee5\u751f\u6210\u5b66\u4e60\u65b9\u6848',
+      description: '\u5df2\u7ecf\u6709\u8db3\u591f\u7684\u5bf9\u8bdd\u4fe1\u606f\uff0c\u53ef\u4ee5\u6574\u7406\u6210\u4e00\u7248\u4e2a\u4eba\u5b66\u4e60\u65b9\u6848\u3002',
       progress: 100,
+    }
+  }
+  if (userTurnCount >= 3 || profileCompletion >= 55) {
+    return {
+      label: '\u6b63\u5728\u6574\u7406\u4f60\u7684\u60c5\u51b5',
+      description: '\u5df2\u7ecf\u4e86\u89e3\u5230\u4e00\u90e8\u5206\u76ee\u6807\u548c\u5361\u70b9\uff0c\u518d\u8865\u5145\u65f6\u95f4\u5b89\u6392\u6216\u60f3\u8fbe\u5230\u7684\u7a0b\u5ea6\u4f1a\u66f4\u51c6\u3002',
+      progress: Math.max(58, Math.min(88, profileCompletion || userTurnCount * 18)),
     }
   }
   if (profileCompletion <= 35) {
@@ -750,7 +759,8 @@ function App() {
 
   const artifactLoading = sessionId ? (artifactLoadingBySession[sessionId] ?? null) : null
   const depthCopy = getDepthCopy(depth)
-  const conversationStatus = getConversationStatusCopy(stage, readyToGenerate, Boolean(generation), profileCompletion)
+  const userTurnCount = messages.filter((message) => message.role === 'user').length
+  const conversationStatus = getConversationStatusCopy(stage, readyToGenerate, Boolean(generation), profileCompletion, userTurnCount)
   const practiceArtifact = artifacts.summary ?? null
   const exerciseSections = practiceArtifact?.sections ?? []
   const exampleArtifact = artifacts.qa_script ?? null
@@ -1718,16 +1728,20 @@ function App() {
               <div className="overview-status-foot">
                 <span className="stage-pill">{STAGE_LABELS[stage]}</span>
               </div>
-              {readyToGenerate && !generation ? (
-                <div className="plan-reminder-card">
-                  <span>学习规划提醒</span>
-                  <p>当前信息已经可以整理成个人学习规划。</p>
-                  <button className="primary-button" type="button" onClick={() => void handleGenerate()} disabled={!llmConfigured || !sessionId || generationLoading}>
-                    <Sparkles size={15} />
-                    {generationLoading ? TEXT.generating : TEXT.generatePlan}
-                  </button>
-                </div>
-              ) : null}
+              <div className="plan-reminder-card">
+                <span>{generation ? '学习方案已生成' : readyToGenerate ? '学习方案已就绪' : '生成学习方案'}</span>
+                <p>
+                  {generation
+                    ? '可根据新的学习目标、薄弱点或时间安排重新制定方案。'
+                    : readyToGenerate
+                      ? '当前信息已可用于制定个人学习方案。'
+                      : '将根据当前对话内容整理学习情况、推荐资料与学习路径。'}
+                </p>
+                <button className="primary-button" type="button" onClick={() => void handleGenerate()} disabled={!llmConfigured || !sessionId || generationLoading}>
+                  <Sparkles size={15} />
+                  {generationLoading ? TEXT.generating : generation ? TEXT.regeneratePlan : TEXT.generatePlan}
+                </button>
+              </div>
             </div>
           </section>
 

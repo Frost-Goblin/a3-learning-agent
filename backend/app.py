@@ -1601,6 +1601,44 @@ def is_learning_plan_request(user_message: str, reply: str = "") -> bool:
     )
     return any(word in compact for word in action_words) or compact in explicit_plan_words
 
+def is_learning_plan_request(user_message: str, reply: str = "") -> bool:
+    if has_mermaid_intent(user_message):
+        return False
+
+    compact = re.sub(r"[\s，。！？!?、,.]+", "", user_message.lower())
+    plan_words = (
+        "学习方案",
+        "学习计划",
+        "学习路径",
+        "学习安排",
+        "复习计划",
+        "复习安排",
+        "python学习方案",
+        "python学习计划",
+        "python学习路径",
+    )
+    if not any(word in compact for word in plan_words):
+        return False
+
+    action_words = (
+        "生成",
+        "制定",
+        "规划",
+        "安排",
+        "做",
+        "给我",
+        "出一份",
+        "开始",
+        "整理",
+        "帮我",
+        "能",
+        "可以",
+        "了吗",
+        "要",
+        "想要",
+    )
+    return any(word in compact for word in action_words) or compact in plan_words
+
 def build_suggested_actions(session: dict[str, Any], reply: str, user_message: str, ready_to_generate: bool) -> list[dict[str, str]]:
     if has_mermaid_intent(user_message):
         return []
@@ -2935,6 +2973,7 @@ def finalize_chat_payload(session: dict[str, Any], user_message: str, payload: d
     missing_slots = [str(item).strip() for item in payload.get("missing_slots", []) if str(item).strip()]
     profile_completion = max(0, min(100, int(payload.get("profile_completion", 0))))
     model_ready_for_plan = bool(payload.get("ready_to_generate", False))
+    was_ready_for_plan = bool(session.get("ready_to_generate", False))
     ready_for_plan = (
         model_ready_for_plan
         and profile_completion >= 90
@@ -2947,11 +2986,11 @@ def finalize_chat_payload(session: dict[str, Any], user_message: str, payload: d
     elif plan_requested:
         payload["ready_to_generate"] = True
     elif direct_content_request:
-        payload["ready_to_generate"] = False
+        payload["ready_to_generate"] = was_ready_for_plan
     elif ready_for_plan:
         payload["ready_to_generate"] = True
     else:
-        payload["ready_to_generate"] = False
+        payload["ready_to_generate"] = was_ready_for_plan
     suggested_actions: list[dict[str, str]] = []
     assistant_message = {"role": "assistant", "content": payload["reply"]}
     if suggested_actions:

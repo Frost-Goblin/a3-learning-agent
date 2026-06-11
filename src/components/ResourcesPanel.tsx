@@ -41,74 +41,23 @@ export function ResourcesPanel({
   getResourceKindLabel,
   onLoadOnlineResources,
 }: ResourcesPanelProps) {
-  const onlineResourcesSection = (
-    <section className="support-section">
-      <div className="section-title">
-        <Globe size={16} />
-        {labels.onlineResourcesTitle}
-      </div>
-      <p className="preview-reason">{labels.onlineResourcesHint}</p>
-      <div className="secondary-actions">
-        <button className="ghost-button" type="button" onClick={onLoadOnlineResources} disabled={onlineResourcesLoading}>
-          <Compass size={16} />
-          {onlineResourcesLoading ? labels.loadingOnlineResources : labels.fetchOnlineResources}
-        </button>
-      </div>
-      {onlineResources.length > 0 ? (
-        <div className="resource-list">
-          {onlineResources.map((item) => {
-            const title = normalizeText(item.title, 'Python 学习资料')
-            const provider = normalizeText(item.provider, '资料来源')
-            const summary = normalizeText(item.recommended_reason || item.summary, '这份资料适合继续补充学习。')
-            const matchLabels = (item.match_labels ?? []).map((label) => normalizeTagLabel(label)).filter(Boolean)
-            const iconUrl = getResourceIconUrl(item.url)
-
-            return (
-              <a className="resource-card external-resource-card" href={item.url} target="_blank" rel="noreferrer" key={item.id}>
-                <div className="resource-head">
-                  <div className="resource-icon resource-site-icon">
-                    {iconUrl ? (
-                      <img
-                        src={iconUrl}
-                        alt=""
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                        onError={(event) => {
-                          event.currentTarget.style.display = 'none'
-                        }}
-                      />
-                    ) : (
-                      <Globe size={16} />
-                    )}
-                  </div>
-                  <div>
-                    <span>{`${provider} · ${getResourceKindLabel(item.kind)}`}</span>
-                    <strong>{title}</strong>
-                  </div>
-                </div>
-                {matchLabels.length > 0 ? (
-                  <div className="match-tags" aria-label={labels.matchedWeakness}>
-                    {matchLabels.slice(0, 3).map((label) => (
-                      <span className="match-tag" key={item.id + '-' + label}>
-                        {label}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-                <p>{summary}</p>
-                <span className="resource-link">
-                  {labels.openResource}
-                  <ExternalLink size={14} />
-                </span>
-              </a>
-            )
-          })}
-        </div>
-      ) : (
-        <p className="history-empty">{labels.emptyOnlineResources}</p>
-      )}
-    </section>
+  const inferredWeaknessTags = Array.from(
+    new Set(
+      [
+        ...weaknessTags,
+        ...onlineResources.flatMap((item) => item.match_labels ?? []),
+      ]
+        .map((label) => normalizeTagLabel(label))
+        .filter(Boolean),
+    ),
   )
+
+  const focusTitle =
+    inferredWeaknessTags.length > 0
+      ? `建议优先补强：${inferredWeaknessTags.slice(0, 4).join('、')}`
+      : generation
+        ? normalizeText(generation.profile.next_focus ?? '', labels.nextFocusFallback)
+        : '完成一轮对话后，我会根据你的薄弱点推荐资料'
 
   return (
     <section className="page panel">
@@ -118,39 +67,98 @@ export function ResourcesPanel({
         </div>
         <BookOpen size={18} />
       </div>
-      {generation ? (
-        <div>
-          <section className="preview-panel">
-            <div className="section-title">
+
+      <div>
+        <section className="preview-panel resource-focus-panel">
+          <div className="section-title">
+            <Compass size={16} />
+            {labels.resourceFocusTitle}
+          </div>
+          <h3>{focusTitle}</h3>
+          <p className="preview-reason">{labels.resourceFocusHint}</p>
+          <div className="match-tags">
+            {inferredWeaknessTags.length > 0 ? (
+              inferredWeaknessTags.slice(0, 6).map((tag) => (
+                <span className="match-tag critical" key={tag}>
+                  {tag}
+                </span>
+              ))
+            ) : (
+              <span className="match-tag subtle">{labels.nextFocusFallback}</span>
+            )}
+          </div>
+        </section>
+
+        {!generation ? <div className="empty-state">{labels.emptyResources}</div> : null}
+
+        <section className="support-section">
+          <div className="section-title">
+            <Globe size={16} />
+            {labels.onlineResourcesTitle}
+          </div>
+          <p className="preview-reason">{labels.onlineResourcesHint}</p>
+          <div className="secondary-actions">
+            <button className="ghost-button" type="button" onClick={onLoadOnlineResources} disabled={onlineResourcesLoading}>
               <Compass size={16} />
-              {labels.resourceFocusTitle}
+              {onlineResourcesLoading ? labels.loadingOnlineResources : labels.fetchOnlineResources}
+            </button>
+          </div>
+
+          {onlineResources.length > 0 ? (
+            <div className="resource-list">
+              {onlineResources.map((item) => {
+                const title = normalizeText(item.title, 'Python 学习资料')
+                const provider = normalizeText(item.provider, '资料来源')
+                const summary = normalizeText(item.recommended_reason || item.summary, '这份资料适合继续补充学习。')
+                const matchLabels = (item.match_labels ?? []).map((label) => normalizeTagLabel(label)).filter(Boolean)
+                const iconUrl = getResourceIconUrl(item.url)
+
+                return (
+                  <a className="resource-card external-resource-card" href={item.url} target="_blank" rel="noreferrer" key={item.id}>
+                    <div className="resource-head">
+                      <div className="resource-icon resource-site-icon">
+                        {iconUrl ? (
+                          <img
+                            src={iconUrl}
+                            alt=""
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                            onError={(event) => {
+                              event.currentTarget.style.display = 'none'
+                            }}
+                          />
+                        ) : (
+                          <Globe size={16} />
+                        )}
+                      </div>
+                      <div>
+                        <span>{`${provider} · ${getResourceKindLabel(item.kind)}`}</span>
+                        <strong>{title}</strong>
+                      </div>
+                    </div>
+                    {matchLabels.length > 0 ? (
+                      <div className="match-tags" aria-label={labels.matchedWeakness}>
+                        {matchLabels.slice(0, 3).map((label) => (
+                          <span className="match-tag" key={item.id + '-' + label}>
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    <p>{summary}</p>
+                    <span className="resource-link">
+                      {labels.openResource}
+                      <ExternalLink size={14} />
+                    </span>
+                  </a>
+                )
+              })}
             </div>
-            <h3>
-              {weaknessTags.length > 0
-                ? '需要重点补强：' + weaknessTags.slice(0, 4).join('、')
-                : normalizeText(generation.profile.next_focus ?? '', labels.nextFocusFallback)}
-            </h3>
-            <p className="preview-reason">{labels.resourceFocusHint}</p>
-            <div className="match-tags">
-              {weaknessTags.length > 0 ? (
-                weaknessTags.slice(0, 6).map((tag) => (
-                  <span className="match-tag critical" key={tag}>
-                    {tag}
-                  </span>
-                ))
-              ) : (
-                <span className="match-tag subtle">{labels.nextFocusFallback}</span>
-              )}
-            </div>
-          </section>
-          {onlineResourcesSection}
-        </div>
-      ) : (
-        <div>
-          <div className="empty-state">{labels.emptyResources}</div>
-          {onlineResourcesSection}
-        </div>
-      )}
+          ) : (
+            <p className="history-empty">{labels.emptyOnlineResources}</p>
+          )}
+        </section>
+      </div>
     </section>
   )
 }
