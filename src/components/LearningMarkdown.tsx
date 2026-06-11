@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { isValidElement, useEffect, useMemo, useState, type ReactNode } from 'react'
 import mermaid from 'mermaid'
 import { Check, Copy } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
@@ -22,6 +22,26 @@ mermaid.initialize({
     fontFamily: 'Inter, "Microsoft YaHei", sans-serif',
   },
 })
+
+function getNodeText(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === 'boolean') {
+    return ''
+  }
+
+  if (typeof node === 'string' || typeof node === 'number') {
+    return String(node)
+  }
+
+  if (Array.isArray(node)) {
+    return node.map(getNodeText).join('')
+  }
+
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    return getNodeText(node.props.children)
+  }
+
+  return ''
+}
 
 export function prepareAssistantMarkdown(content: string) {
   const lines = content.split('\n')
@@ -121,7 +141,7 @@ function MarkdownCodeBlock({
   renderMermaid = true,
 }: MarkdownCodeProps & { renderMermaid?: boolean }) {
   const [copied, setCopied] = useState(false)
-  const rawCode = String(children ?? '').replace(/\n$/, '')
+  const rawCode = getNodeText(children).replace(/\n$/, '')
   const language = /language-([\w-]+)/.exec(className)?.[1] ?? 'python'
 
   if (inline || (!className && !rawCode.includes('\n'))) {
