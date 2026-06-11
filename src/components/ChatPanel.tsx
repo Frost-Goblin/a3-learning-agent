@@ -1,7 +1,7 @@
-﻿import type { RefObject, ReactNode } from 'react'
-import { MessageSquareText, SendHorizontal, Sparkles, UserRound } from 'lucide-react'
+import type { RefObject } from 'react'
+import { MessageSquareText, SendHorizontal } from 'lucide-react'
 import { LearningMarkdown } from './LearningMarkdown'
-import type { DisplayMessage, SuggestedAction, SuggestedActionType } from '../types'
+import type { DisplayMessage } from '../types'
 
 type ChatPanelLabels = {
   chat: string
@@ -17,8 +17,6 @@ type ChatPanelProps = {
   labels: ChatPanelLabels
   stageLabel: string
   messages: DisplayMessage[]
-  pendingMessage: string
-  lastAssistantMessageIndex: number
   draft: string
   dialogScrollerRef: RefObject<HTMLDivElement | null>
   sessionId: string
@@ -26,18 +24,12 @@ type ChatPanelProps = {
   messageLoading: boolean
   setDraft: (value: string) => void
   onSendMessage: () => void
-  onSuggestedAction: (action: SuggestedAction) => void
-  isSuggestedActionDisabled: (actionType: SuggestedActionType) => boolean
-  renderSuggestedActionIcon: (actionType: SuggestedActionType) => ReactNode
-  getSuggestedActionLabel: (action: SuggestedAction) => string
 }
 
 export function ChatPanel({
   labels,
   stageLabel,
   messages,
-  pendingMessage,
-  lastAssistantMessageIndex,
   draft,
   dialogScrollerRef,
   sessionId,
@@ -45,10 +37,6 @@ export function ChatPanel({
   messageLoading,
   setDraft,
   onSendMessage,
-  onSuggestedAction,
-  isSuggestedActionDisabled,
-  renderSuggestedActionIcon,
-  getSuggestedActionLabel,
 }: ChatPanelProps) {
   return (
     <section className="page page-chat panel">
@@ -65,9 +53,7 @@ export function ChatPanel({
             {messages.length > 0 ? (
               messages.map((message, index) => (
                 <article className={message.role === 'assistant' ? 'message-row assistant' : 'message-row user'} key={message.role + '-' + index + '-' + (message.status ?? 'done')}>
-                  <div className="message-avatar">{message.role === 'assistant' ? <Sparkles size={16} /> : <UserRound size={16} />}</div>
                   <div className={message.status === 'thinking' ? 'message-bubble thinking' : 'message-bubble'}>
-                    <span className="message-label">{message.role === 'assistant' ? labels.assistant : labels.you}</span>
                     {message.role === 'assistant' ? (
                       <div className="chat-markdown">
                         <LearningMarkdown content={message.content} renderMermaid={!(messageLoading && index === messages.length - 1)} />
@@ -75,22 +61,6 @@ export function ChatPanel({
                     ) : (
                       <p>{message.content}</p>
                     )}
-                    {!pendingMessage && message.role === 'assistant' && message.status !== 'thinking' && index === lastAssistantMessageIndex && message.suggested_actions?.length ? (
-                      <div className="message-action-row" aria-label="可继续执行的操作">
-                        {message.suggested_actions.map((action) => (
-                          <button
-                            className="message-action-button"
-                            type="button"
-                            key={action.type}
-                            onClick={() => onSuggestedAction(action)}
-                            disabled={isSuggestedActionDisabled(action.type)}
-                          >
-                            {renderSuggestedActionIcon(action.type)}
-                            {getSuggestedActionLabel(action)}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
                   </div>
                 </article>
               ))

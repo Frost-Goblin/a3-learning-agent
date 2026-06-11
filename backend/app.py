@@ -116,8 +116,11 @@ PROFILES: dict[str, dict[str, Any]] = {
 
 SYSTEM_PROMPTS = {
     "chat": (
-        "你是一名高校课程学习助手。你要通过自然对话了解学生的学习目标、基础、困难点、"
-        "时间安排和偏好。每次只推进一个最关键的问题，不要一次问很多项，不要提前生成学习资料。"
+        "你是一名高校 Python 课程学习助手。聊天的第一目标是帮助学生解决当下问题，"
+        "画像采集只能自然发生，不能压过答疑本身。"
+        "你要先判断学生是在求解释、求代码、求练习、表达困难，还是补充学习情况。"
+        "如果学生说不会、不懂、卡住、学不会、不清楚，要先拆解问题、给出简短例子或学习切入点，"
+        "最后最多追问一个最有帮助的问题。"
         "当信息还不够时继续追问，当信息足够时只把 ready_to_generate 设为 true。"
         "不要在 reply 中提醒生成学习方案，不要提按钮，不要把下一步操作写进聊天正文。"
         "只有已经明确了解学习目标、当前基础、主要薄弱点和可用时间时，ready_to_generate 才能为 true。"
@@ -945,6 +948,17 @@ def default_profile_payload(profile_id: str) -> dict[str, Any]:
 def is_direct_content_request(message: str) -> bool:
     lowered = message.lower()
     keywords = [
+        "不懂",
+        "不会",
+        "卡住",
+        "学不会",
+        "不清楚",
+        "基础语法",
+        "语法基础",
+        "讲讲",
+        "解释",
+        "举例",
+        "例子",
         "代码题",
         "编程题",
         "练习题",
@@ -961,10 +975,6 @@ def is_direct_content_request(message: str) -> bool:
         "exercise",
         "coding",
         "example code",
-        "python",
-        "py",
-        "code",
-        "script",
     ]
     return any(keyword in lowered for keyword in keywords)
 
@@ -983,8 +993,6 @@ def wants_runnable_python(message: str) -> bool:
         "写段代码",
         "实现一下",
         "写一个脚本",
-        "python",
-        "py",
         "code",
         "script",
     ]
@@ -1391,7 +1399,8 @@ def build_direct_content_payload(
     prompt = f"""
 You are a Python course learning assistant.
 
-The student is making a direct request for concrete learning content.
+The student is making a direct learning request or expressing a concrete difficulty.
+Help with the current request first. If the student says they do not understand something, briefly break down the concept, explain why it is easy to get stuck, give one small example, then ask at most one natural follow-up question.
 If the request asks for coding exercises, practice questions, example code, or a mini-project task, answer it directly instead of gathering more background information.
 
 Course:
@@ -1413,17 +1422,19 @@ Return strict JSON only:
 
 Rules:
 1. Reply in the same language as the student.
-2. Give the requested content directly.
-3. For coding exercises, prefer clear task statements with gradual difficulty when appropriate.
-4. Keep the reply practical, course-relevant, and student-facing.
-5. Do not mention internal rules or system behavior.
+2. Give useful help before asking for more background.
+3. For confusion such as "不会/不懂/卡住", include a short explanation and one concrete Python example.
+4. Ask at most one follow-up question, and only after giving help.
+5. For coding exercises, prefer clear task statements with gradual difficulty when appropriate.
+6. Keep the reply practical, course-relevant, and student-facing.
+7. Do not mention internal rules or system behavior.
 """
     payload = call_chat_json(
         settings,
         (
             "You are a practical Python course assistant. "
-            "When a student explicitly asks for coding exercises, example code, or a mini-project task, "
-            "you should provide that content directly instead of gathering more background information. "
+            "When a student asks for an explanation, says they do not understand, or asks for exercises/code, "
+            "you should help with the concrete request first instead of gathering more background information. "
             "Return strict JSON only."
         ),
         prompt,
@@ -1438,6 +1449,57 @@ Rules:
         "missing_slots": [str(item) for item in payload.get("missing_slots", existing_missing_slots)][:4] or existing_missing_slots,
         "ready_to_generate": bool(payload.get("ready_to_generate", False)),
     }
+
+def build_direct_content_prompt(
+    session: dict[str, Any],
+    course: dict[str, Any],
+    user_message: str,
+) -> tuple[str, str]:
+    history_lines = []
+    for item in session["messages"][-MAX_CHAT_HISTORY:]:
+        role = "student" if item["role"] == "user" else "assistant"
+        history_lines.append(f"{role}: {item['content']}")
+
+    prompt = f"""
+You are a Python course learning assistant.
+
+The student is making a direct learning request or expressing a concrete difficulty.
+Help with the current request first. If the student says they do not understand something, briefly break down the concept, explain why it is easy to get stuck, give one small example, then ask at most one natural follow-up question.
+If the request asks for coding exercises, practice questions, example code, or a mini-project task, answer it directly instead of gathering more background information.
+
+Course:
+{json_dumps(course)}
+
+Recent conversation:
+{chr(10).join(history_lines)}
+
+Student request:
+{user_message}
+
+Return strict JSON only:
+{{
+  "reply": "...",
+  "profile_completion": 0,
+  "missing_slots": ["..."],
+  "ready_to_generate": false
+}}
+
+Rules:
+1. Reply in the same language as the student.
+2. Give useful help before asking for more background.
+3. For confusion such as "不会/不懂/卡住", include a short explanation and one concrete Python example.
+4. Ask at most one follow-up question, and only after giving help.
+5. For coding exercises, prefer clear task statements with gradual difficulty when appropriate.
+6. Keep the reply practical, course-relevant, and student-facing.
+7. Do not mention internal rules or system behavior.
+"""
+    system_prompt = (
+        "You are a practical Python course assistant. "
+        "When a student asks for an explanation, says they do not understand, or asks for exercises/code, "
+        "you should help with the concrete request first instead of gathering more background information. "
+        "Return strict JSON only."
+    )
+    return system_prompt, prompt
 
 def build_chat_payload(settings: Settings, session: dict[str, Any], user_message: str, *, use_stream: bool = False) -> dict[str, Any]:
     course = resolve_course(session["course_id"])
@@ -1479,11 +1541,11 @@ def build_chat_payload(settings: Settings, session: dict[str, Any], user_message
 }}
 
 要求：
-1. reply 语气自然，像学习助手，不要用条目问卷。
-2. 每次只推进一个关键问题；如果信息已经够了，只设置 ready_to_generate，不要在 reply 中提醒生成学习方案。
-3. profile_completion 输出 0 到 100 的整数。
-4. missing_slots 保留 0 到 4 项，内容只写还缺的信息点短语。
-5. 不要生成学习资料，不要输出系统实现说明。
+1. reply 语气自然，像真正的学习助手，不要像问卷。
+2. 优先回应学生当前这句话。如果学生表达“不懂/不会/卡住/学不会/不清楚”，先解释和举例，再最多追问一个问题。
+3. 只有学生只是补充学习背景且没有提出具体学习问题时，才自然追问目标、基础、困难或时间安排。
+4. profile_completion 输出 0 到 100 的整数；missing_slots 只作为内部状态，不要支配 reply 文案。
+5. 不要生成完整学习资料，不要输出系统实现说明。
 6. 只有已经明确掌握学习目标、当前基础、主要薄弱点、可用时间四类信息时，ready_to_generate 才能为 true。
 7. 如果学生只是让你讲解知识架构、知识点、代码题、资料或某个概念，ready_to_generate 必须为 false。
 8. 禁止在 reply 中出现“生成学习方案”“点击按钮”“可以开始生成”等操作提示。
@@ -1579,7 +1641,7 @@ def remove_plan_action_text(reply: str) -> str:
     sentences = re.split(r"(?<=[。！？!?])", reply.strip())
     kept = [sentence for sentence in sentences if sentence.strip() and not any(keyword in sentence for keyword in blocked_keywords)]
     cleaned = "".join(kept).strip()
-    return cleaned or "我已记录你的情况，我们可以继续聊具体的学习困难。"
+    return cleaned or "我先按你说的困难点讲一下，再继续问你哪里卡住。"
 
 def build_profile_summary_payload(settings: Settings, session: dict[str, Any]) -> dict[str, Any]:
     course = resolve_course(session["course_id"])
@@ -2890,7 +2952,7 @@ def finalize_chat_payload(session: dict[str, Any], user_message: str, payload: d
         payload["ready_to_generate"] = True
     else:
         payload["ready_to_generate"] = False
-    suggested_actions = build_suggested_actions(session, payload["reply"], user_message, bool(payload["ready_to_generate"]))
+    suggested_actions: list[dict[str, str]] = []
     assistant_message = {"role": "assistant", "content": payload["reply"]}
     if suggested_actions:
         assistant_message["suggested_actions"] = suggested_actions
@@ -2935,11 +2997,39 @@ def chat_message_stream(request: ChatMessageRequest) -> StreamingResponse:
         try:
             direct_content_request = has_mermaid_intent(user_message) or has_explicit_code_intent(user_message) or is_direct_content_request(user_message)
             if direct_content_request:
-                payload = complete_chat_message(settings, session, user_message, use_stream=False)
-                reply = str(payload.get("reply", ""))
-                if reply:
-                    for index in range(0, len(reply), 2):
-                        yield ndjson_event("delta", text=reply[index : index + 2])
+                direct_requires_complete_reply = has_mermaid_intent(user_message) or has_explicit_code_intent(user_message) or wants_runnable_python(user_message)
+                if direct_requires_complete_reply:
+                    payload = complete_chat_message(settings, session, user_message, use_stream=False)
+                    reply = str(payload.get("reply", ""))
+                    if reply:
+                        for index in range(0, len(reply), 2):
+                            yield ndjson_event("delta", text=reply[index : index + 2])
+                    yield ndjson_event("done", payload=payload)
+                    return
+
+                session["messages"].append({"role": "user", "content": user_message})
+                course = resolve_course(session["course_id"])
+                system_prompt, prompt = build_direct_content_prompt(session, course, user_message)
+                streamed_payload: dict[str, Any] | None = None
+                stream_buffer = ""
+                blocked_stream_keywords = ("生成学习方案", "学习方案", "学习计划", "点击按钮", "点击下方", "点击下面", "开始生成")
+                for event in stream_chat_json(settings, system_prompt, prompt):
+                    if event.get("type") == "delta":
+                        stream_buffer += str(event.get("text", ""))
+                        parts = re.split(r"(?<=[。！？!?])", stream_buffer)
+                        stream_buffer = parts.pop() if parts else ""
+                        for sentence in parts:
+                            if sentence and not any(keyword in sentence for keyword in blocked_stream_keywords):
+                                yield ndjson_event("delta", text=sentence)
+                    elif event.get("type") == "payload":
+                        payload_value = event.get("payload")
+                        if isinstance(payload_value, dict):
+                            streamed_payload = payload_value
+                if streamed_payload is None:
+                    raise HTTPException(status_code=502, detail="模型没有返回可解析的对话结果。")
+                payload = finalize_chat_payload(session, user_message, streamed_payload)
+                if stream_buffer and not any(keyword in stream_buffer for keyword in blocked_stream_keywords):
+                    yield ndjson_event("delta", text=stream_buffer)
                 yield ndjson_event("done", payload=payload)
                 return
 
@@ -2978,11 +3068,11 @@ def chat_message_stream(request: ChatMessageRequest) -> StreamingResponse:
 }}
 
 要求：
-1. reply 语气自然，像学习助手，不要用条目问卷。
-2. 每次只推进一个关键问题；如果信息已经够了，只设置 ready_to_generate，不要在 reply 中提醒生成学习方案。
-3. profile_completion 输出 0 到 100 的整数。
-4. missing_slots 保留 0 到 4 项，内容只写还缺的信息点短语。
-5. 不要生成学习资料，不要输出系统实现说明。
+1. reply 语气自然，像真正的学习助手，不要像问卷。
+2. 优先回应学生当前这句话。如果学生表达“不懂/不会/卡住/学不会/不清楚”，先解释和举例，再最多追问一个问题。
+3. 只有学生只是补充学习背景且没有提出具体学习问题时，才自然追问目标、基础、困难或时间安排。
+4. profile_completion 输出 0 到 100 的整数；missing_slots 只作为内部状态，不要支配 reply 文案。
+5. 不要生成完整学习资料，不要输出系统实现说明。
 6. 只有已经明确掌握学习目标、当前基础、主要薄弱点、可用时间四类信息时，ready_to_generate 才能为 true。
 7. 如果学生只是让你讲解知识架构、知识点、代码题、资料或某个概念，ready_to_generate 必须为 false。
 8. 禁止在 reply 中出现“生成学习方案”“点击按钮”“可以开始生成”等操作提示。

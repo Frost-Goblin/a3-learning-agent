@@ -1,9 +1,6 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import {
-  ClipboardCheck,
-  Globe,
-  MessageSquareText,
   RefreshCw,
   Settings as SettingsIcon,
   Sparkles,
@@ -46,8 +43,6 @@ import type {
   RunRecord,
   SessionDetail,
   SessionSummary,
-  SuggestedAction,
-  SuggestedActionType,
 } from './types'
 
 const LAST_SESSION_KEY = 'a3-learning-agent:last-session'
@@ -161,13 +156,6 @@ const TEXT = {
   reviewFailed: '\u63d0\u4ea4\u7b54\u6848\u5931\u8d25\u3002',
   answerUpdatedAt: '\u6700\u8fd1\u66f4\u65b0',
   noExerciseGenerated: '\u5148\u751f\u6210\u7ec3\u4e60\u5185\u5bb9\uff0c\u518d\u5728\u8fd9\u91cc\u505a\u9898\u3002',
-}
-
-const SUGGESTED_ACTION_LABELS: Record<SuggestedActionType, string> = {
-  generate_plan: '\u751f\u6210\u5b66\u4e60\u65b9\u6848',
-  generate_examples: '\u751f\u6210\u5178\u4f8b\u7cbe\u8bb2',
-  generate_practice: '\u751f\u6210\u81ea\u6211\u7ec3\u4e60',
-  recommend_resources: '\u63a8\u8350\u8865\u5145\u8d44\u6599',
 }
 
 const FALLBACK_COURSES: Course[] = [
@@ -295,7 +283,7 @@ function removePlanActionText(message: string) {
   const blockedKeywords = ['生成学习方案', '学习方案', '学习计划', '点击按钮', '点击下方', '点击下面', '开始生成']
   const sentences = message.trim().split(/(?<=[。！？!?])/)
   const cleaned = sentences.filter((sentence) => sentence.trim() && !blockedKeywords.some((keyword) => sentence.includes(keyword))).join('').trim()
-  return cleaned || (blockedKeywords.some((keyword) => message.includes(keyword)) ? '我已记录你的情况，我们可以继续聊具体的学习困难。' : message)
+  return cleaned || (blockedKeywords.some((keyword) => message.includes(keyword)) ? '我先按你说的困难点讲一下，再继续问你哪里卡住。' : message)
 }
 
 function normalizeAssistantMessage(message: string, index: number) {
@@ -309,33 +297,6 @@ function normalizeAssistantMessage(message: string, index: number) {
   return '\u6211\u7ee7\u7eed\u542c\u4f60\u8865\u5145\u3002\u4e5f\u53ef\u4ee5\u76f4\u63a5\u8bf4\u4f60\u60f3\u8ba9\u6211\u751f\u6210\u4ec0\u4e48\u5185\u5bb9\u3002'
 }
 
-const suggestedActionTypes = new Set<SuggestedActionType>([
-  'generate_plan',
-  'generate_examples',
-  'generate_practice',
-  'recommend_resources',
-])
-
-function normalizeSuggestedActions(actions: ChatMessage['suggested_actions'], options: { includePlan?: boolean } = {}) {
-  if (!Array.isArray(actions)) {
-    return []
-  }
-
-  const seen = new Set<string>()
-  return actions
-    .filter((action): action is SuggestedAction => {
-      if (!action || !suggestedActionTypes.has(action.type) || seen.has(action.type)) {
-        return false
-      }
-      if (!options.includePlan && action.type === 'generate_plan') {
-        return false
-      }
-      seen.add(action.type)
-      return true
-    })
-    .slice(0, 3)
-}
-
 function normalizeMessages(messages: ChatMessage[]) {
   return messages.map((message, index) => {
     if (message.role === 'assistant') {
@@ -343,7 +304,7 @@ function normalizeMessages(messages: ChatMessage[]) {
       return {
         ...message,
         content,
-        suggested_actions: normalizeSuggestedActions(message.suggested_actions),
+        suggested_actions: [],
       }
     }
     return {
@@ -876,6 +837,7 @@ function App() {
         : messages,
     [messages, pendingMessage],
   )
+  const lastDisplayMessageContent = displayMessages.at(-1)?.content ?? ''
   useEffect(() => {
     if (activeView !== 'chat') {
       return
@@ -887,16 +849,7 @@ function App() {
         scroller.scrollTop = scroller.scrollHeight
       }
     })
-  }, [activeView, displayMessages.length, pendingMessage])
-  const lastAssistantMessageIndex = useMemo(() => {
-    for (let index = displayMessages.length - 1; index >= 0; index -= 1) {
-      const message = displayMessages[index]
-      if (message.role === 'assistant' && message.status !== 'thinking') {
-        return index
-      }
-    }
-    return -1
-  }, [displayMessages])
+  }, [activeView, displayMessages.length, lastDisplayMessageContent, pendingMessage])
   const weaknessTags = (generation?.profile.weakness_tags ?? [])
     .map((tag) => normalizeTagLabel(tag))
     .filter(Boolean)
@@ -1693,54 +1646,6 @@ function App() {
     }
   }
 
-  const isSuggestedActionDisabled = (actionType: SuggestedActionType) => {
-    if (!sessionId || sessionLoading || messageLoading) {
-      return true
-    }
-    if (actionType === 'recommend_resources') {
-      return onlineResourcesLoading
-    }
-    if (actionType === 'generate_plan') {
-      return !llmConfigured || generationLoading
-    }
-    return !llmConfigured || artifactLoading !== null
-  }
-
-  const renderSuggestedActionIcon = (actionType: SuggestedActionType) => {
-    if (actionType === 'generate_plan') {
-      return <Sparkles size={15} />
-    }
-    if (actionType === 'generate_examples') {
-      return <MessageSquareText size={15} />
-    }
-    if (actionType === 'generate_practice') {
-      return <ClipboardCheck size={15} />
-    }
-    return <Globe size={15} />
-  }
-
-  const handleSuggestedAction = async (action: SuggestedAction) => {
-    if (isSuggestedActionDisabled(action.type)) {
-      return
-    }
-
-    if (action.type === 'generate_plan') {
-      await handleGenerate()
-      return
-    }
-    if (action.type === 'generate_examples') {
-      await handleArtifact('qa_script')
-      return
-    }
-    if (action.type === 'generate_practice') {
-      await handleArtifact('summary')
-      return
-    }
-
-    setActiveView('resources')
-    await handleLoadOnlineResources()
-  }
-
   return (
     <div className="app-shell">
       <div className="sr-only" aria-live="polite">
@@ -1859,8 +1764,6 @@ function App() {
                 }}
                 stageLabel={STAGE_LABELS[stage]}
                 messages={displayMessages}
-                pendingMessage={pendingMessage}
-                lastAssistantMessageIndex={lastAssistantMessageIndex}
                 draft={draft}
                 dialogScrollerRef={dialogScrollerRef}
                 sessionId={sessionId}
@@ -1868,10 +1771,6 @@ function App() {
                 messageLoading={messageLoading}
                 setDraft={setDraft}
                 onSendMessage={() => void handleSendMessage()}
-                onSuggestedAction={(action) => void handleSuggestedAction(action)}
-                isSuggestedActionDisabled={isSuggestedActionDisabled}
-                renderSuggestedActionIcon={renderSuggestedActionIcon}
-                getSuggestedActionLabel={(action) => normalizeText(action.label, SUGGESTED_ACTION_LABELS[action.type])}
               />
             ) : null}
 
