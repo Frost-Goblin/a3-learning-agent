@@ -235,7 +235,7 @@ export function PathPanel({
                         </div>
                       ) : (
                         <div className="path-loop-empty">
-                          <p>{onlineResourcesLoading ? '正在按当前薄弱点匹配理论资料。' : '还没有匹配到理论资料，可以先更新外部资料。'}</p>
+                          <p>{onlineResourcesLoading ? '正在按当前薄弱点匹配理论资料。' : '暂无匹配的理论资料，可更新外部资料后继续查看。'}</p>
                           <button className="path-inline-button" type="button" onClick={onLoadOnlineResources} disabled={onlineResourcesLoading}>
                             <Globe size={15} />
                             {onlineResourcesLoading ? '匹配中...' : '更新外部资料'}

@@ -119,7 +119,7 @@ export function ProfilePanel({
             <div className="profile-focus-panel">
               <span className="profile-focus-label">{labels.nextFocus}</span>
               <strong>{normalizeText(generation.profile.next_focus ?? '', labels.nextFocusFallback)}</strong>
-              <p>后续资料和练习会优先围绕这个方向展开。</p>
+              <p>推荐资料、典例精讲和自我练习将围绕该方向展开。</p>
             </div>
           </section>
 
