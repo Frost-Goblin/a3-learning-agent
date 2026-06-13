@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import {
+  Moon,
   RefreshCw,
   Settings as SettingsIcon,
   Sparkles,
+  Sun,
 } from 'lucide-react'
 import 'highlight.js/styles/github.css'
 import './App.css'
@@ -46,6 +48,7 @@ import type {
 } from './types'
 
 const LAST_SESSION_KEY = 'a3-learning-agent:last-session'
+const THEME_MODE_KEY = 'a3-learning-agent:theme-mode'
 
 const TEXT = {
   heading: 'AI-Python\u5b66\u4e60\u52a9\u624b',
@@ -675,6 +678,7 @@ function App() {
   const [depth, setDepth] = useState(2)
   const [version, setVersion] = useState(1)
   const [activeView, setActiveView] = useState<AppView>('chat')
+  const [darkMode, setDarkMode] = useState(() => window.localStorage.getItem(THEME_MODE_KEY) === 'dark')
 
   const [llmConfigured, setLlmConfigured] = useState(false)
   const [backendNotice, setBackendNotice] = useState(TEXT.connecting)
@@ -721,6 +725,12 @@ function App() {
   const [exerciseReviewLoading, setExerciseReviewLoading] = useState(false)
   const [pathAssessmentLoading, setPathAssessmentLoading] = useState<number | null>(null)
   const [onlineResourcesLoading, setOnlineResourcesLoading] = useState(false)
+
+  useEffect(() => {
+    const nextTheme = darkMode ? 'dark' : 'light'
+    document.documentElement.dataset.theme = nextTheme
+    window.localStorage.setItem(THEME_MODE_KEY, nextTheme)
+  }, [darkMode])
 
   const isActiveSession = (targetSessionId: string) => Boolean(targetSessionId) && activeSessionRef.current === targetSessionId
 
@@ -1754,6 +1764,9 @@ function App() {
           </nav>
 
           <div className="workspace-actions">
+            <button className="ghost-button theme-toggle-button" type="button" onClick={() => setDarkMode((value) => !value)} aria-label={darkMode ? '切换为亮色模式' : '切换为暗色模式'} title={darkMode ? '亮色模式' : '暗色模式'}>
+              {darkMode ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
             <button className="ghost-button" type="button" onClick={handleOpenSettings}>
               <SettingsIcon size={16} />
               {'\u8bbe\u7f6e'}

@@ -20,6 +20,19 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+:root[data-theme='dark'] {
+  --bg: #0f1724;
+  --panel: #151f2e;
+  --soft: #101928;
+  --line: #263548;
+  --text: #e8eef7;
+  --muted: #9aa8ba;
+  --accent: #6aa8ff;
+  --gold: #f0b84d;
+  --shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+  color-scheme: dark;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -39,6 +52,12 @@ body {
   margin: 0;
   background:
     linear-gradient(180deg, rgba(11, 107, 203, 0.08), transparent 280px),
+    var(--bg);
+}
+
+:root[data-theme='dark'] body {
+  background:
+    linear-gradient(180deg, rgba(106, 168, 255, 0.12), transparent 300px),
     var(--bg);
 }
 

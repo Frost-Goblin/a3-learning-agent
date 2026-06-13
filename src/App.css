@@ -1759,7 +1759,8 @@ input[type='range'] {
 .match-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  column-gap: 10px;
+  row-gap: 12px;
   margin-top: 12px;
 }
 
@@ -1833,6 +1834,132 @@ input[type='range'] {
   color: var(--accent);
   font-size: 13px;
   font-weight: 700;
+}
+
+.resource-page {
+  display: grid;
+  gap: 16px;
+}
+
+.resource-dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.55fr);
+  gap: 18px;
+  align-items: center;
+  padding: 18px;
+  border: 1px solid rgba(11, 107, 203, 0.14);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(11, 107, 203, 0.08), rgba(255, 255, 255, 0.92)),
+    #fff;
+}
+
+.resource-dashboard-copy span,
+.resource-card-copy > span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.resource-dashboard-copy h3 {
+  margin: 8px 0 0;
+  font-size: 22px;
+  line-height: 1.35;
+}
+
+.resource-dashboard-copy p,
+.resource-library-head p,
+.resource-card-copy p {
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.resource-dashboard-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.resource-empty-state {
+  margin-top: 0;
+}
+
+.resource-library {
+  display: grid;
+  gap: 14px;
+}
+
+.resource-library-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.resource-library-head .ghost-button {
+  flex: none;
+}
+
+.resource-library-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.redesigned-resource-card {
+  min-height: 172px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 16px 14px;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.redesigned-resource-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: rgba(11, 107, 203, 0.72);
+}
+
+.resource-card-main {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 14px;
+}
+
+.resource-card-copy {
+  min-width: 0;
+}
+
+.resource-card-copy strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+  line-height: 1.35;
+}
+
+.compact-tags {
+  column-gap: 8px;
+  row-gap: 8px;
+  margin-top: 12px;
+}
+
+.redesigned-resource-card .resource-link {
+  margin-top: 0;
+  align-self: flex-start;
 }
 
 .preview-panel,
@@ -2184,7 +2311,7 @@ input[type='range'] {
 .path-phase-panel {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 14px;
 }
 
 .path-phase-panel > div {
@@ -2574,7 +2701,8 @@ input[type='range'] {
 }
 
 .compact-tags {
-  margin-top: 7px;
+  margin-top: 10px;
+  row-gap: 8px;
 }
 
 .path-loop-empty {
@@ -2930,6 +3058,11 @@ input[type='range'] {
   background: rgba(255, 255, 255, 0.78);
 }
 
+.workspace-actions .theme-toggle-button {
+  width: 40px;
+  padding: 0;
+}
+
 .page-shell {
   border: 1px solid rgba(217, 226, 236, 0.86);
   border-radius: 16px;
@@ -3264,6 +3397,169 @@ input[type='range'] {
   animation: question-content-enter 0.24s ease-out both;
 }
 
+:root[data-theme='dark'] .app-shell {
+  background:
+    radial-gradient(circle at 8% 0%, rgba(106, 168, 255, 0.12), transparent 32%),
+    linear-gradient(180deg, #111b2a 0%, #0b1220 100%);
+}
+
+:root[data-theme='dark'] .topbar,
+:root[data-theme='dark'] .history-rail.panel,
+:root[data-theme='dark'] .view-tabs,
+:root[data-theme='dark'] .workspace-actions .ghost-button,
+:root[data-theme='dark'] .page-shell,
+:root[data-theme='dark'] .panel,
+:root[data-theme='dark'] .overview-card,
+:root[data-theme='dark'] .preview-panel,
+:root[data-theme='dark'] .artifact-card,
+:root[data-theme='dark'] .session-card,
+:root[data-theme='dark'] .resource-card,
+:root[data-theme='dark'] .path-card,
+:root[data-theme='dark'] .practice-side-card,
+:root[data-theme='dark'] .practice-queue-item,
+:root[data-theme='dark'] .exercise-answer-panel,
+:root[data-theme='dark'] .settings-dialog {
+  border-color: var(--line);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: none;
+}
+
+:root[data-theme='dark'] .page.panel > .panel-head,
+:root[data-theme='dark'] .learning-work-card > .learning-work-head,
+:root[data-theme='dark'] .exercise-answer-head,
+:root[data-theme='dark'] .settings-head,
+:root[data-theme='dark'] .settings-foot,
+:root[data-theme='dark'] .learning-code-bar {
+  border-color: var(--line);
+  background: #182437;
+}
+
+:root[data-theme='dark'] .session-card.active,
+:root[data-theme='dark'] .practice-queue-item.active,
+:root[data-theme='dark'] .view-tabs,
+:root[data-theme='dark'] .overview-card-primary {
+  background: #18263a;
+}
+
+:root[data-theme='dark'] .view-tab {
+  color: var(--muted);
+}
+
+:root[data-theme='dark'] .view-tab.active,
+:root[data-theme='dark'] .primary-button {
+  background: #2f6fe4;
+  color: #fff;
+}
+
+:root[data-theme='dark'] .ghost-button,
+:root[data-theme='dark'] .icon-button,
+:root[data-theme='dark'] .chip,
+:root[data-theme='dark'] .stage-pill,
+:root[data-theme='dark'] .match-tag,
+:root[data-theme='dark'] .path-status-pill,
+:root[data-theme='dark'] .session-action-button {
+  border-color: var(--line);
+  background: #111b2a;
+  color: var(--text);
+}
+
+:root[data-theme='dark'] .message-row.user .message-bubble,
+:root[data-theme='dark'] .empty-state,
+:root[data-theme='dark'] .review-panel,
+:root[data-theme='dark'] .review-column,
+:root[data-theme='dark'] .exercise-editor-card,
+:root[data-theme='dark'] .path-loop-section,
+:root[data-theme='dark'] .path-outcome-block,
+:root[data-theme='dark'] .path-assessment-panel,
+:root[data-theme='dark'] .path-progress-panel,
+:root[data-theme='dark'] .path-phase-panel,
+:root[data-theme='dark'] .mermaid-diagram {
+  border-color: var(--line);
+  background: #111b2a;
+  color: var(--text);
+}
+
+:root[data-theme='dark'] .composer,
+:root[data-theme='dark'] textarea,
+:root[data-theme='dark'] input,
+:root[data-theme='dark'] select {
+  border-color: var(--line);
+  background: #0f1724;
+  color: var(--text);
+}
+
+:root[data-theme='dark'] .chat-markdown :not(pre) > code,
+:root[data-theme='dark'] .path-duration,
+:root[data-theme='dark'] .profile-meta-pill {
+  border-color: var(--line);
+  background: #182437;
+  color: var(--text);
+}
+
+:root[data-theme='dark'] .learning-code-block,
+:root[data-theme='dark'] .chat-markdown pre,
+:root[data-theme='dark'] .chat-markdown .learning-code-block pre {
+  border-color: var(--line);
+  background: #0c1422;
+}
+
+:root[data-theme='dark'] .chat-markdown pre code {
+  color: #e8eef7;
+}
+
+:root[data-theme='dark'] .hljs {
+  color: #d7e2f0;
+  background: transparent;
+}
+
+:root[data-theme='dark'] .hljs-keyword,
+:root[data-theme='dark'] .hljs-selector-tag,
+:root[data-theme='dark'] .hljs-built_in {
+  color: #ff6b91;
+}
+
+:root[data-theme='dark'] .hljs-string,
+:root[data-theme='dark'] .hljs-attr {
+  color: #7dd3fc;
+}
+
+:root[data-theme='dark'] .hljs-number,
+:root[data-theme='dark'] .hljs-literal {
+  color: #8bbcff;
+}
+
+:root[data-theme='dark'] .hljs-comment {
+  color: #7f8ea3;
+}
+
+:root[data-theme='dark'] .chat-markdown h1,
+:root[data-theme='dark'] .chat-markdown h2,
+:root[data-theme='dark'] .chat-markdown h3,
+:root[data-theme='dark'] .chat-markdown h4,
+:root[data-theme='dark'] .chat-markdown strong,
+:root[data-theme='dark'] .section-title,
+:root[data-theme='dark'] .resource-link {
+  color: #8bbcff;
+}
+
+:root[data-theme='dark'] .resource-dashboard {
+  border-color: var(--line);
+  background:
+    linear-gradient(135deg, rgba(106, 168, 255, 0.12), rgba(21, 31, 46, 0.92)),
+    var(--panel);
+}
+
+:root[data-theme='dark'] .resource-library-head,
+:root[data-theme='dark'] .redesigned-resource-card {
+  border-color: var(--line);
+  background: var(--panel);
+}
+
+:root[data-theme='dark'] .redesigned-resource-card::before {
+  background: rgba(106, 168, 255, 0.75);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -3273,6 +3569,106 @@ input[type='range'] {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+:root[data-theme='dark'] .preview-panel,
+:root[data-theme='dark'] .artifact-card,
+:root[data-theme='dark'] .profile-hero-copy,
+:root[data-theme='dark'] .profile-focus-panel,
+:root[data-theme='dark'] .profile-insight-card,
+:root[data-theme='dark'] .profile-spotlight-card,
+:root[data-theme='dark'] .profile-tag-strip,
+:root[data-theme='dark'] .profile-detail-card,
+:root[data-theme='dark'] .collaboration-panel,
+:root[data-theme='dark'] .collaboration-card,
+:root[data-theme='dark'] .dimension-item,
+:root[data-theme='dark'] .resource-card,
+:root[data-theme='dark'] .path-card,
+:root[data-theme='dark'] .exercise-answer-panel,
+:root[data-theme='dark'] .practice-side-card,
+:root[data-theme='dark'] .practice-queue-item,
+:root[data-theme='dark'] .learning-work-card,
+:root[data-theme='dark'] .practice-artifact-card,
+:root[data-theme='dark'] .practice-empty-state {
+  border-color: var(--line);
+  background: var(--panel);
+  color: var(--text);
+}
+
+:root[data-theme='dark'] .profile-hero-copy,
+:root[data-theme='dark'] .profile-spotlight-card.danger,
+:root[data-theme='dark'] .session-card.active {
+  background: #172338;
+}
+
+:root[data-theme='dark'] .learning-work-card > .learning-work-head,
+:root[data-theme='dark'] .learning-work-card > .learning-work-head > .practice-stage-copy,
+:root[data-theme='dark'] .exercise-answer-head,
+:root[data-theme='dark'] .practice-empty-state.learning-work-card > .secondary-actions {
+  border-color: var(--line);
+  background: #172338;
+}
+
+:root[data-theme='dark'] .learning-work-card > .empty-state.compact,
+:root[data-theme='dark'] .artifact-sections.focused article,
+:root[data-theme='dark'] .artifact-sections article,
+:root[data-theme='dark'] .collaboration-card.pending,
+:root[data-theme='dark'] .collaboration-dot.pending span,
+:root[data-theme='dark'] .collaboration-source-row em,
+:root[data-theme='dark'] .match-tag.subtle,
+:root[data-theme='dark'] .resource-icon,
+:root[data-theme='dark'] .path-phase-panel,
+:root[data-theme='dark'] .path-phase-step,
+:root[data-theme='dark'] .path-map-panel,
+:root[data-theme='dark'] .path-map-toolbar button,
+:root[data-theme='dark'] .path-inline-button,
+:root[data-theme='dark'] .path-assess-button,
+:root[data-theme='dark'] .path-assessment-result,
+:root[data-theme='dark'] .history-item span {
+  border-color: var(--line);
+  background: #101928;
+  color: var(--text);
+}
+
+:root[data-theme='dark'] .profile-hero-summary,
+:root[data-theme='dark'] .profile-insight-card p,
+:root[data-theme='dark'] .profile-spotlight-card strong,
+:root[data-theme='dark'] .collaboration-card p,
+:root[data-theme='dark'] .artifact-sections > article > strong,
+:root[data-theme='dark'] .path-card strong,
+:root[data-theme='dark'] .history-item strong {
+  color: var(--text);
+}
+
+:root[data-theme='dark'] .profile-meta-pill,
+:root[data-theme='dark'] .chip.active,
+:root[data-theme='dark'] .stage-pill,
+:root[data-theme='dark'] .match-tag,
+:root[data-theme='dark'] .path-status-pill {
+  border-color: #35506d;
+  background: #20314a;
+  color: #d9e8ff;
+}
+
+:root[data-theme='dark'] .path-phase-panel > div,
+:root[data-theme='dark'] .path-progress-bar,
+:root[data-theme='dark'] .progress-bar {
+  border-color: var(--line);
+  background: #101928;
+  color: var(--text);
+}
+
+:root[data-theme='dark'] .path-phase-panel strong,
+:root[data-theme='dark'] .path-phase-panel p,
+:root[data-theme='dark'] .path-progress-panel strong,
+:root[data-theme='dark'] .path-progress-panel p {
+  color: var(--text);
+}
+
+:root[data-theme='dark'] .practice-queue-top em {
+  border-color: #35506d;
+  background: #20314a;
+  color: #d9e8ff;
 }
 
 @media (max-width: 1240px) {
@@ -3335,6 +3731,15 @@ input[type='range'] {
 
   .resource-list.wide {
     grid-template-columns: 1fr;
+  }
+
+  .resource-dashboard,
+  .resource-library-list {
+    grid-template-columns: 1fr;
+  }
+
+  .resource-dashboard-tags {
+    justify-content: flex-start;
   }
 
   .path-overview-panel,
