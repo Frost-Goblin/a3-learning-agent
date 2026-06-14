@@ -43,3 +43,5 @@ __pycache__/
 *.pptx
 
 docs/
+
+.kagent/
