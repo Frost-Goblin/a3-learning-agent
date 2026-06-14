@@ -1,3 +1,19 @@
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./assets/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./assets/fonts/JetBrainsMono-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --bg: #f5f7fb;
   --panel: #ffffff;
@@ -8,6 +24,12 @@
   --accent: #0b6bcb;
   --gold: #d99a12;
   --shadow: 0 12px 30px rgba(22, 32, 51, 0.08);
+  --surface-glass: rgba(255, 255, 255, 0.72);
+  --surface-paper: rgba(255, 255, 255, 0.92);
+  --surface-tint: linear-gradient(135deg, rgba(11, 107, 203, 0.08), rgba(255, 255, 255, 0.76));
+  --surface-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  --material-shadow: 0 18px 44px rgba(22, 32, 51, 0.08);
+  --code-font: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
 
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -21,15 +43,20 @@
 }
 
 :root[data-theme='dark'] {
-  --bg: #0f1724;
-  --panel: #151f2e;
-  --soft: #101928;
-  --line: #263548;
-  --text: #e8eef7;
-  --muted: #9aa8ba;
-  --accent: #6aa8ff;
-  --gold: #f0b84d;
+  --bg: #011627;
+  --panel: #071d2f;
+  --soft: #061a2b;
+  --line: #1d3b53;
+  --text: #d6deeb;
+  --muted: #7f9bb3;
+  --accent: #82aaff;
+  --gold: #ffcb8b;
   --shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+  --surface-glass: rgba(7, 29, 47, 0.78);
+  --surface-paper: rgba(7, 29, 47, 0.94);
+  --surface-tint: linear-gradient(135deg, rgba(130, 170, 255, 0.12), rgba(7, 29, 47, 0.82));
+  --surface-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --material-shadow: 0 22px 52px rgba(0, 0, 0, 0.34);
   color-scheme: dark;
 }
 
@@ -47,18 +74,73 @@ body,
 }
 
 body {
+  position: relative;
   min-width: 320px;
   height: 100vh;
   margin: 0;
   background:
-    linear-gradient(180deg, rgba(11, 107, 203, 0.08), transparent 280px),
+    radial-gradient(circle at 22% 18%, rgba(18, 46, 138, 0.34), transparent 30%),
+    radial-gradient(circle at 78% 0%, rgba(0, 168, 232, 0.28), transparent 28%),
+    radial-gradient(ellipse at 50% 48%, rgba(124, 58, 237, 0.13), transparent 34%),
+    radial-gradient(ellipse at 54% 58%, rgba(59, 130, 246, 0.12), transparent 38%),
+    radial-gradient(circle at 18% 96%, rgba(245, 158, 11, 0.22), transparent 30%),
+    radial-gradient(circle at 94% 82%, rgba(34, 197, 94, 0.2), transparent 28%),
+    linear-gradient(120deg, rgba(255, 255, 255, 0.68), rgba(225, 235, 255, 0.92) 42%, rgba(246, 250, 255, 0.86)),
     var(--bg);
+  background-size: 130% 130%, 130% 130%, 120% 120%, 120% 120%, 135% 135%, 135% 135%, 100% 100%, auto;
+  isolation: isolate;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: -18%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 28% 38%, rgba(59, 130, 246, 0.22), transparent 24%),
+    radial-gradient(circle at 68% 42%, rgba(20, 184, 166, 0.16), transparent 22%),
+    radial-gradient(circle at 45% 70%, rgba(245, 158, 11, 0.13), transparent 24%);
+  filter: blur(10px);
+  transform: translate3d(-3%, -2%, 0) scale(1.02);
+  animation: ambient-glass-flow 9s ease-in-out infinite alternate;
+}
+
+:root[data-theme='dark'] body::before {
+  background:
+    radial-gradient(circle at 28% 38%, rgba(130, 170, 255, 0.18), transparent 24%),
+    radial-gradient(circle at 68% 42%, rgba(127, 219, 202, 0.12), transparent 22%),
+    radial-gradient(circle at 45% 70%, rgba(255, 203, 139, 0.08), transparent 24%);
 }
 
 :root[data-theme='dark'] body {
   background:
-    linear-gradient(180deg, rgba(106, 168, 255, 0.12), transparent 300px),
+    radial-gradient(circle at 22% 18%, rgba(130, 170, 255, 0.2), transparent 32%),
+    radial-gradient(circle at 82% 0%, rgba(33, 150, 243, 0.14), transparent 30%),
+    radial-gradient(ellipse at 50% 48%, rgba(199, 146, 234, 0.1), transparent 36%),
+    radial-gradient(ellipse at 54% 58%, rgba(127, 219, 202, 0.08), transparent 38%),
+    radial-gradient(circle at 16% 94%, rgba(255, 203, 139, 0.1), transparent 30%),
+    radial-gradient(circle at 94% 84%, rgba(127, 219, 202, 0.12), transparent 28%),
+    linear-gradient(120deg, rgba(1, 22, 39, 0.98), rgba(1, 16, 30, 0.99) 48%, rgba(3, 31, 50, 0.98)),
     var(--bg);
+}
+
+@keyframes ambient-glass-flow {
+  0% {
+    transform: translate3d(-4%, -3%, 0) scale(1.02);
+  }
+  50% {
+    transform: translate3d(3%, 2%, 0) scale(1.08);
+  }
+  100% {
+    transform: translate3d(5%, -2%, 0) scale(1.04);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body::before {
+    animation: none;
+  }
 }
 
 button,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { MouseEvent } from 'react'
+import type { CSSProperties, MouseEvent } from 'react'
 import {
   Moon,
   RefreshCw,
@@ -7,7 +7,6 @@ import {
   Sparkles,
   Sun,
 } from 'lucide-react'
-import 'highlight.js/styles/github.css'
 import './App.css'
 import { ChatPanel } from './components/ChatPanel'
 import { ExamplesPanel } from './components/ExamplesPanel'
@@ -51,7 +50,7 @@ const LAST_SESSION_KEY = 'a3-learning-agent:last-session'
 const THEME_MODE_KEY = 'a3-learning-agent:theme-mode'
 
 const TEXT = {
-  heading: 'AI-Python\u5b66\u4e60\u52a9\u624b',
+  heading: 'AI·Python\u5b66\u4e60\u52a9\u624b',
   connecting: '\u8fde\u63a5\u4e2d',
   newChat: '\u65b0\u804a\u5929',
   recentChats: '\u6700\u8fd1\u804a\u5929',
@@ -198,6 +197,7 @@ const VIEW_LABELS: Record<AppView, string> = {
   practice: TEXT.practice,
   path: TEXT.path,
 }
+const VIEW_ORDER = Object.keys(VIEW_LABELS) as AppView[]
 
 const STAGE_LABELS: Record<AppStage, string> = {
   chatting: '\u7ee7\u7eed\u4e86\u89e3\u60c5\u51b5',
@@ -1674,7 +1674,7 @@ function App() {
       <header className="topbar">
         <div className="topbar-intro">
           <h1 className="topbar-title" aria-label={TEXT.heading}>
-            <span className="topbar-title-badge">AI-Python</span>
+            <span className="topbar-title-badge">AI·Python</span>
             <span className="topbar-title-main">{'\u5b66\u4e60\u52a9\u624b'}</span>
           </h1>
         </div>
@@ -1755,8 +1755,8 @@ function App() {
             </div>
           </section>
 
-          <nav className="view-tabs" aria-label="\u9875\u9762\u5207\u6362">
-            {(Object.keys(VIEW_LABELS) as AppView[]).map((view) => (
+          <nav className="view-tabs" aria-label="\u9875\u9762\u5207\u6362" style={{ '--active-tab-index': VIEW_ORDER.indexOf(activeView) } as CSSProperties}>
+            {VIEW_ORDER.map((view) => (
               <button key={view} type="button" className={activeView === view ? 'view-tab active' : 'view-tab'} onClick={() => setActiveView(view)}>
                 {VIEW_LABELS[view]}
               </button>

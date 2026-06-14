@@ -3,10 +3,57 @@ import mermaid from 'mermaid'
 import { Check, Copy } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
+import { createHighlighterCore } from 'shiki/core'
+import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
+import python from '@shikijs/langs/python'
+import javascript from '@shikijs/langs/javascript'
+import typescript from '@shikijs/langs/typescript'
+import jsx from '@shikijs/langs/jsx'
+import tsx from '@shikijs/langs/tsx'
+import json from '@shikijs/langs/json'
+import shellscript from '@shikijs/langs/shellscript'
+import markdown from '@shikijs/langs/markdown'
+import githubLight from '@shikijs/themes/github-light'
+import nightOwl from '@shikijs/themes/night-owl'
 import type { ArtifactSegment, MarkdownCodeProps } from '../types'
 
 let mermaidCounter = 0
+let highlighterPromise: ReturnType<typeof createHighlighterCore> | null = null
+
+const SHIKI_LANGUAGES = [
+  'python',
+  'javascript',
+  'typescript',
+  'jsx',
+  'tsx',
+  'json',
+  'bash',
+  'shellscript',
+  'markdown',
+] as const
+
+type SupportedShikiLanguage = (typeof SHIKI_LANGUAGES)[number]
+
+function getHighlighter() {
+  if (!highlighterPromise) {
+    highlighterPromise = createHighlighterCore({
+      themes: [githubLight, nightOwl],
+      langs: [python, javascript, typescript, jsx, tsx, json, shellscript, markdown],
+      engine: createJavaScriptRegexEngine(),
+    })
+  }
+  return highlighterPromise
+}
+
+function normalizeCodeLanguage(language: string): SupportedShikiLanguage {
+  const lower = language.toLowerCase()
+  if (lower === 'py') return 'python'
+  if (lower === 'js') return 'javascript'
+  if (lower === 'ts') return 'typescript'
+  if (lower === 'sh' || lower === 'shell' || lower === 'powershell' || lower === 'ps1') return 'shellscript'
+  if (SHIKI_LANGUAGES.includes(lower as SupportedShikiLanguage)) return lower as SupportedShikiLanguage
+  return 'python'
+}
 
 mermaid.initialize({
   startOnLoad: false,
@@ -141,8 +188,47 @@ function MarkdownCodeBlock({
   renderMermaid = true,
 }: MarkdownCodeProps & { renderMermaid?: boolean }) {
   const [copied, setCopied] = useState(false)
+  const [highlightedHtml, setHighlightedHtml] = useState('')
   const rawCode = getNodeText(children).replace(/\n$/, '')
   const language = /language-([\w-]+)/.exec(className)?.[1] ?? 'python'
+  const normalizedLanguage = normalizeCodeLanguage(language)
+
+  useEffect(() => {
+    let cancelled = false
+    setHighlightedHtml('')
+
+    if (inline || language.toLowerCase() === 'mermaid') {
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void getHighlighter()
+      .then((highlighter) =>
+        highlighter.codeToHtml(rawCode, {
+          lang: normalizedLanguage,
+          themes: {
+            light: 'github-light',
+            dark: 'night-owl',
+          },
+          defaultColor: false,
+        }),
+      )
+      .then((html) => {
+        if (!cancelled) {
+          setHighlightedHtml(html)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setHighlightedHtml('')
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [inline, language, normalizedLanguage, rawCode])
 
   if (inline || (!className && !rawCode.includes('\n'))) {
     return <code className={className}>{children}</code>
@@ -178,9 +264,13 @@ function MarkdownCodeBlock({
           {copied ? '已复制' : '复制'}
         </button>
       </div>
-      <pre>
-        <code className={className}>{children}</code>
-      </pre>
+      {highlightedHtml ? (
+        <div className="shiki-code-render" dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
+      ) : (
+        <pre>
+          <code>{rawCode}</code>
+        </pre>
+      )}
     </div>
   )
 }
@@ -189,7 +279,6 @@ export function LearningMarkdown({ content, renderMermaid = true }: { content: s
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypeHighlight]}
       components={{
         pre: ({ children }) => <>{children}</>,
         code: (props) => <MarkdownCodeBlock {...props} renderMermaid={renderMermaid} />,

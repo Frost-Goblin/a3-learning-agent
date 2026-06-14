@@ -80,11 +80,6 @@ export function PracticePanel({
       </div>
       <section className="support-section practice-layout">
         <aside className="practice-sidebar">
-          <div className="practice-side-card">
-            <span className="practice-side-label">{labels.practice}</span>
-            <p className="practice-side-hint">先看题目，再直接写下你的 Python 代码并提交点评。</p>
-          </div>
-
           {exerciseSections.length > 0 ? (
             <div className="practice-side-card">
               <span className="practice-side-label">{labels.chooseExercise}</span>
@@ -132,7 +127,7 @@ export function PracticePanel({
               {currentExercise ? (
                 <div className="artifact-sections focused">
                   <article key={currentExercise.heading + '-' + activePracticeIndex}>
-                    <strong>{normalizeText(currentExercise.heading, '补充内容')}</strong>
+                    <strong>{normalizeText(currentExercise.heading, '练习内容')}</strong>
                     {renderArtifactSection(currentExercise, activePracticeIndex, 'summary')}
                   </article>
                 </div>

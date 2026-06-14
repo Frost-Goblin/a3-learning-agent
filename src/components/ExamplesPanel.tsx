@@ -48,11 +48,6 @@ export function ExamplesPanel({
       </div>
       <section className="support-section practice-layout">
         <aside className="practice-sidebar">
-          <div className="practice-side-card">
-            <span className="practice-side-label">{labels.scriptArtifact}</span>
-            <p className="practice-side-hint">这里单独展示典型例题、解题思路和参考代码。</p>
-          </div>
-
           {scriptSections.length > 0 ? (
             <div className="practice-side-card">
               <span className="practice-side-label">{labels.scriptArtifact}</span>
@@ -82,12 +77,7 @@ export function ExamplesPanel({
               <div className="practice-stage-head learning-work-head">
                 <div className="practice-stage-copy">
                   <h3>{labels.scriptArtifact}</h3>
-                  <p>
-                    {normalizeText(
-                      exampleArtifact.summary,
-                      '这里会给你完整示例、解题思路和代码讲解。',
-                    )}
-                  </p>
+                  <p>{normalizeText(exampleArtifact.summary, '这里会展示完整示例、解题思路和代码讲解。')}</p>
                   <span className="collaboration-inline-note">内容已根据学习情况和课程资料生成。</span>
                 </div>
                 <div className="secondary-actions artifact-inline-actions">
