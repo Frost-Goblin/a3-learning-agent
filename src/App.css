@@ -3550,8 +3550,8 @@ input[type='range'] {
 }
 
 :root[data-theme='dark'] .topbar-title-badge {
-  background: #82aaff;
-  color: #28314e;
+  background: #113056;
+  color: #91cfd5;
 }
 
 :root[data-theme='dark'] .page.panel > .panel-head,
